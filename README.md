@@ -63,7 +63,7 @@ Four distinct model families, split across providers to keep rate-limit budgets 
 | Executor | `openai/gpt-oss-120b` | Groq | NIM's own hosting of this model has known tool-calling, timeout failures, Groq's hosting doesn't. |
 | Critic | `gemini-3.5-flash` | Gemini | Isolated from Planner/Executor's family so it isn't grading output from a model in its own family. |
 | Synthesizer | `gemini-3.5-flash` | Gemini | Same model as Critic, but a fully separate prompt/call, Critic never touches report content. |
-| Eval judge | `deepseek-ai/deepseek-v4-flash-0731` | NIM (account 2) | Isolated from both Planner (Llama) and Critic/Synthesizer (Gemini), the ablation study compares Critic on/off, so the judge scoring that comparison can't share a family with either side. |
+| Eval judge | `deepseek-ai/deepseek-v4-flash-0731` | NIM (account 2) | Isolated from both Planner (Llama) and Critic/Synthesizer (Gemini) to eliminate biased judging. |
 
 ## Guardrails
 
