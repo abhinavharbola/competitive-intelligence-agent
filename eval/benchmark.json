@@ -1,17 +1,167 @@
 [
-  {"entity": "Anthropic", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
-  {"entity": "OpenAI", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
-  {"entity": "Stripe", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
-  {"entity": "Notion", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
-  {"entity": "Figma", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
-  {"entity": "Databricks", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
-  {"entity": "Snowflake", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
-  {"entity": "Canva", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
-  {"entity": "Discord", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
-  {"entity": "Airtable", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
-  {"entity": "Vercel", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
-  {"entity": "Linear", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
-  {"entity": "Ramp", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
-  {"entity": "Retool", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
-  {"entity": "Perplexity AI", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false}
+  {
+    "entity": "Anthropic",
+    "ground_truth": {
+      "what_it_does": "AI safety company that builds the Claude family of AI models, offered via API, consumer apps, and the Claude Code agentic coding product.",
+      "funding_ownership": "Private, VC-backed. Raised a $65B Series H in May 2026 (largest private VC round in history) led by Altimeter Capital, Dragoneer, Greenoaks, and Sequoia Capital, at a $965B post-money valuation. Confidentially filed for IPO on June 1, 2026, targeting an October 2026 Nasdaq listing.",
+      "recent_news": "Valuation roughly tripled from $380B (Feb 2026) to $965B (May 2026) in three months. Annualized revenue run rate hit $47B in May 2026, up from about $1B in Dec 2024. Claude Code reached $2.5B annualized revenue by Feb 2026.",
+      "competitors": "OpenAI, Google (Gemini), xAI.",
+      "risks": "Extremely high revenue multiple priced for sustained hypergrowth; heavy dependence on continued enterprise adoption; intense competitive pressure from OpenAI and Google; regulatory and AI-safety scrutiny typical of frontier labs."
+    },
+    "verified": true
+  },
+  {
+    "entity": "OpenAI",
+    "ground_truth": {
+      "what_it_does": "Creator of ChatGPT and the GPT model family; positions itself as core AI infrastructure via consumer apps, developer APIs, and the Codex coding product.",
+      "funding_ownership": "Private, capped-profit structure under nonprofit oversight. Closed a $122B round at an $852B post-money valuation in March 2026, led by SoftBank with Amazon, Nvidia, and Microsoft as major strategic investors. Confidentially filed a draft S-1 with the SEC in June 2026.",
+      "recent_news": "Valuation rose from $500B (Oct 2025 tender offer) to $852B (Mar 2026). Restructured its Microsoft partnership in April 2026 (non-exclusive IP license, can now serve non-Azure clouds, Microsoft revenue-share capped at $38B through 2030). As of July 2026, in preliminary talks about giving the US government an equity stake.",
+      "competitors": "Anthropic, Google (Gemini), xAI.",
+      "risks": "Steep operating losses (loses more than $1 for every $1 of revenue per reported figures); large multi-year compute and infrastructure commitments; profitability not projected until 2030-2031 under most analyst scenarios."
+    },
+    "verified": true
+  },
+  {
+    "entity": "Stripe",
+    "ground_truth": {
+      "what_it_does": "Payments infrastructure company providing APIs and tools for online and in-person payment acceptance, billing, and financial operations for businesses of all sizes.",
+      "funding_ownership": "Private, founder-led (Patrick and John Collison). Valued at roughly $159B in a February 2026 employee tender offer, up from about $91.5B a year earlier. No imminent IPO confirmed by leadership as of mid-2026.",
+      "recent_news": "Bloomberg reported in late February 2026 that Stripe was in preliminary talks about acquiring some or all of PayPal; discussions described as early-stage and may not result in a transaction. Processed $1.9 trillion in total payment volume in 2025.",
+      "competitors": "PayPal, Adyen, Block (Square), Shopify Payments, Affirm.",
+      "risks": "A potential PayPal acquisition remains unconfirmed and could fall through; competitive pressure from Adyen in enterprise payments; broader fintech valuation volatility."
+    },
+    "verified": true
+  },
+  {
+    "entity": "Notion",
+    "ground_truth": {
+      "what_it_does": "AI-powered workspace combining docs, wikis, databases, and project management, increasingly positioned as a platform for building AI agents and automations.",
+      "funding_ownership": "Private. Valued at roughly $11B following a January 2026 employee tender offer (investors include Sequoia Capital, Index Ventures, GIC), versus a $10B mark from its 2021 Series C.",
+      "recent_news": "Opened a developer platform in beta (May 2026) for building AI agents on Notion. Added native integration with Claude Code, Cursor, and Codex as AI agents (May 2026). Crossed roughly $500-600M ARR.",
+      "competitors": "Microsoft Loop, Confluence (Atlassian), Coda, Monday.com, Asana, Google Docs.",
+      "risks": "Microsoft Loop's deep Teams/Outlook/Office 365 integration is a structural distribution threat; largely flat headline valuation since 2021 despite revenue growth; secondary share prices reportedly declined over the prior 12 months."
+    },
+    "verified": true
+  },
+  {
+    "entity": "Figma",
+    "ground_truth": {
+      "what_it_does": "Collaborative interface design and prototyping platform, spanning design, whiteboarding (FigJam), design-to-code (Dev Mode), and AI-assisted design tools.",
+      "funding_ownership": "Public company (NYSE: FIG). IPO'd July 31, 2025 at $33/share (~$19.3B implied valuation) after Adobe's ~$20B acquisition was terminated by regulators in December 2023.",
+      "recent_news": "Stock fell roughly 44-52% in H1 2026 despite strong Q1 2026 earnings (revenue up 46% YoY), driven by investor fears of AI-native design competitors such as Anthropic's Claude Design.",
+      "competitors": "Adobe (Creative Cloud/XD), Canva, Sketch, Anthropic's Claude Design, Lucid.",
+      "risks": "Market pricing in AI-native design tools as an existential threat despite strong fundamentals; still GAAP-unprofitable; high stock-based compensation."
+    },
+    "verified": true
+  },
+  {
+    "entity": "Databricks",
+    "ground_truth": {
+      "what_it_does": "Unified data and AI analytics platform (the \"lakehouse\") for data engineering, warehousing, governance, and building AI applications on enterprise data.",
+      "funding_ownership": "Private. Confirmed $134B valuation from a Series L round closed December 2025; reportedly in talks (June 2026) to raise a new round at $165-175B, not yet closed as of mid-2026.",
+      "recent_news": "Annualized revenue run rate of about $5.4B as of January 2026, growing over 65% YoY. CEO Ali Ghodsi indicated an IPO is more likely in 2027 than 2026.",
+      "competitors": "Snowflake, AWS, Microsoft Azure, Google Cloud.",
+      "risks": "Valued at more than double its closest public comparable (Snowflake) while still private; competition from cloud hyperscalers building competing native AI/data services; leadership-transition risk while preparing for a public listing."
+    },
+    "verified": true
+  },
+  {
+    "entity": "Snowflake",
+    "ground_truth": {
+      "what_it_does": "Publicly traded AI Data Cloud platform for data warehousing, engineering, and analytics, increasingly layering in AI agent and governance tooling (e.g. Cortex AI Gateway).",
+      "funding_ownership": "Public company (NYSE: SNOW). Market capitalization roughly $78-82B as of mid-2026.",
+      "recent_news": "Introduced Cortex AI Gateway and additional AI security tooling in July 2026. Stock had fallen roughly 48% from its 52-week high amid AI-native competition concerns.",
+      "competitors": "Databricks, AWS, Microsoft Azure, Google Cloud, Oracle.",
+      "risks": "Ongoing consolidated securities class-action lawsuits over historical performance disclosures; customer-side security misconfiguration and breach exposure; consumption-based revenue model that amplifies spending-cycle swings; still GAAP-unprofitable."
+    },
+    "verified": true
+  },
+  {
+    "entity": "Canva",
+    "ground_truth": {
+      "what_it_does": "Cloud-based visual design platform spanning presentations, documents, video, websites, and AI-assisted design tools (\"Magic Studio\"), for individuals and enterprises.",
+      "funding_ownership": "Private, co-founder led (Melanie Perkins). Valued around $42B in an August 2025 employee share sale (up from $32B in October 2024); a major backer has said Canva is \"ready\" for a potential H2 2026 IPO, though no S-1 has been filed.",
+      "recent_news": "Confirmed roughly $4B in annualized recurring revenue and 265 million monthly active users by February 2026. Profitable for eight consecutive years as of 2025.",
+      "competitors": "Adobe (Creative Cloud/Express), Figma, Microsoft Designer, Wix, Shutterstock.",
+      "risks": "Intensifying competition from Adobe, Figma, and Microsoft in AI-assisted design; a 2026 Australian regulatory infringement notice (~A$792,000) over late account filings, notable given IPO-readiness expectations around governance."
+    },
+    "verified": true
+  },
+  {
+    "entity": "Discord",
+    "ground_truth": {
+      "what_it_does": "Chat and community platform (voice, video, text) originally built for gamers, now used broadly by online communities, creators, and developer ecosystems.",
+      "funding_ownership": "Private. Confidentially filed a draft S-1 with the SEC in January 2026 (Goldman Sachs and JPMorgan as underwriters). Valuation estimates vary widely as of mid-2026, roughly $7-8.5B on secondary markets versus a $15B mark from its 2021 round, with bull cases as high as $25B; unconfirmed pending pricing.",
+      "recent_news": "Public S-1 not yet released as of mid-2026; no confirmed IPO date. Reportedly generated roughly $561-879M in 2025 revenue depending on source, with 200-250 million monthly active users.",
+      "competitors": "Slack, Roblox (community/social overlap), Reddit, Snap, Twitch.",
+      "risks": "Revenue per user significantly lags peers like Twitter, Snap, and Reddit, a key point of valuation disagreement; rejected a ~$12B Microsoft acquisition offer in 2021 and must now prove standalone public-market viability."
+    },
+    "verified": true
+  },
+  {
+    "entity": "Airtable",
+    "ground_truth": {
+      "what_it_does": "No-code/low-code database and workflow platform for building custom business applications; repositioned since late 2025 as an \"AI-native\" company with agentic products (e.g. Superagent).",
+      "funding_ownership": "Acquired. Bending Spoons agreed to acquire Airtable for $1.28B in cash, announced August 4, 2026 - down sharply from its 2021 peak private valuation of over $11B and a roughly $4B secondary-market mark earlier in 2025.",
+      "recent_news": "The Bending Spoons acquisition (Aug 2026) ends Airtable's run as an independent, venture-backed company; deal expected to close by year-end 2026 pending regulatory approval.",
+      "competitors": "Smartsheet, Monday.com, Asana, Notion.",
+      "risks": "The acquisition price reflects a roughly 80%+ valuation decline from Airtable's 2021 peak, illustrating broader correction risk for 2021-era SaaS unicorns; integration risk under new ownership."
+    },
+    "verified": true
+  },
+  {
+    "entity": "Vercel",
+    "ground_truth": {
+      "what_it_does": "Frontend cloud platform for building, deploying, and scaling web applications; maintains the Next.js React framework and offers AI-native developer tools (v0, AI Cloud).",
+      "funding_ownership": "Private. Raised a $300M Series F in September 2025 at a $9.3B post-money valuation, co-led by Accel and GIC - roughly a 3x step-up from its $3.25B valuation in May 2024.",
+      "recent_news": "Acquired Stakpak (AI infrastructure startup) in July 2026. Revenue run rate reached roughly $340M by March 2026, growing about 84% YoY, with AI coding agents driving over 30% of weekly deployments.",
+      "competitors": "Netlify, Cloudflare, AWS, Microsoft Azure, GitLab.",
+      "risks": "Its v0 AI coding product faces commoditization pressure from GitHub Copilot, Cursor, Bolt.new, and similar tools; rapid AI token/inference consumption creates challenging unit economics."
+    },
+    "verified": true
+  },
+  {
+    "entity": "Linear",
+    "ground_truth": {
+      "what_it_does": "Issue-tracking and project management tool purpose-built for software development teams, positioned as a faster, more opinionated alternative to Jira.",
+      "funding_ownership": "Private. Raised an $82M Series C in June 2025 at a $1.25B valuation, led by Accel with Sequoia, 01 Advisors, and others participating.",
+      "recent_news": "No new priced funding round confirmed since June 2025. Reported 15,000+ customers including OpenAI, Scale AI, and Perplexity, with profits reportedly up 280% year-over-year at the time of its last raise.",
+      "competitors": "Atlassian (Jira), ClickUp, Asana, Trello, Shortcut.",
+      "risks": "Operates in a crowded project-management category dominated by much larger incumbents (Atlassian); must keep differentiating against AI features being added broadly by competitors."
+    },
+    "verified": true
+  },
+  {
+    "entity": "Ramp",
+    "ground_truth": {
+      "what_it_does": "Corporate spend management platform offering corporate cards, expense management, bill pay, and procurement/accounting automation.",
+      "funding_ownership": "Private, co-founder led (Eric Glyman, Karim Atiyeh). Raised $750M in June 2026 at a $44B valuation (led by ICONIQ, GIC, and Ontario Teachers' Pension Plan) - up from $32B in November 2025 and $22.5B in July 2025.",
+      "recent_news": "Valuation nearly tripled over roughly one year through mid-2026. Surpassed $1B in annualized recurring revenue. Growth partly attributed to companies seeking tools to manage rising AI-related spend.",
+      "competitors": "Brex (acquired by Capital One in 2026 for $5.15B), American Express, Bill.com, Intuit (QuickBooks), Rippling.",
+      "risks": "Meaningful revenue exposure to card interchange economics; valuation has risen extremely fast (nearly 3x in a year), raising sustainability questions if growth decelerates."
+    },
+    "verified": true
+  },
+  {
+    "entity": "Retool",
+    "ground_truth": {
+      "what_it_does": "Low-code platform for building and deploying internal business software and admin tools, used by companies including Amazon, Stripe, and DoorDash.",
+      "funding_ownership": "Private, founder-led (David Hsu). Last priced round was a $45M Series C2 in July 2022 at a $3.2B valuation; no newer priced round confirmed as of mid-2026.",
+      "recent_news": "No major funding or M&A news identified in the past 12 months; valuation and funding figures remain those from the 2022 round.",
+      "competitors": "Airtable, Appsmith, Bubble, Metabase, custom in-house tooling.",
+      "risks": "Valuation stale relative to faster-moving AI-native competitors; low-code category increasingly contested by AI coding assistants that can generate internal tools directly."
+    },
+    "verified": true
+  },
+  {
+    "entity": "Perplexity AI",
+    "ground_truth": {
+      "what_it_does": "AI-powered \"answer engine\" that synthesizes cited, sourced answers from real-time web data, plus an expanding agentic product suite (Comet browser, Perplexity Computer, an API platform).",
+      "funding_ownership": "Private, founder-led (Aravind Srinivas). Valued at roughly $22.6B following a January 2026 Series E-6 round (investors include IVP, Accel, NEA; backers also reportedly include Jeff Bezos and Nvidia).",
+      "recent_news": "Integrated its \"Computer\" agent product directly into Microsoft 365 (Word, Excel, PowerPoint, Outlook, Teams) in June 2026. Global web traffic share reported at roughly 1.3% as of May 2026, down from 2.0% in March 2026, despite rapid ARR growth (reportedly $450-500M+ annualized).",
+      "competitors": "Google (Search/Gemini/AI Overviews), OpenAI (ChatGPT search), Microsoft Copilot, You.com.",
+      "risks": "Trades at a very high revenue multiple that assumes continued triple-digit growth; faces active publisher disputes (News Corp, NYT, WIRED) over content licensing/scraping; competes against far better-resourced incumbents with vastly greater distribution."
+    },
+    "verified": true
+  }
 ]

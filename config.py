@@ -19,7 +19,7 @@ PLANNER_MODEL = "meta/llama-3.1-8b-instruct"
 EXECUTOR_MODEL = "openai/gpt-oss-120b"
 CRITIC_MODEL = "gemini-3.5-flash"
 SYNTHESIZER_MODEL = "gemini-3.5-flash"
-JUDGE_MODEL = "qwen/qwen2.5-72b-instruct"
+JUDGE_MODEL = "qwen/qwen2.5-7b-instruct"
 
 REQUIRED_FIELDS = ["what_it_does", "funding_ownership", "recent_news", "competitors", "risks"]
 

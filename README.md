@@ -72,7 +72,7 @@ keep the evaluation judge structurally independent of the components it's judgin
 | Executor | `openai/gpt-oss-120b` | Groq | NIM's own hosting of this model has known tool-calling/timeout failures — Groq's hosting doesn't. |
 | Critic | `gemini-3.5-flash` | Gemini | Isolated from Planner/Executor's family so it isn't grading output from a model in its own family. |
 | Synthesizer | `gemini-3.5-flash` | Gemini | Same model as Critic, but a fully separate prompt/call — Critic never touches report content. |
-| Eval judge | `qwen/qwen2.5-72b-instruct` | NIM (account 2) | A third family, isolated from both Planner (Llama) and Critic/Synthesizer (Gemini) — the ablation study compares Critic on/off, so the judge scoring that comparison can't share a family with either side without biasing it. |
+| Eval judge | `qwen/qwen2.5-7b-instruct` | NIM (account 2) | A third family, isolated from both Planner (Llama) and Critic/Synthesizer (Gemini) — the ablation study compares Critic on/off, so the judge scoring that comparison can't share a family with either side without biasing it. Originally spec'd as the 72B variant, which 404'd — that model exists as a downloadable NGC container for self-hosting but isn't actually live on NIM's hosted free-tier API, only the 7B is. |
 
 Rejected along the way: NIM's `gpt-oss-120b` (serving-backend failures), Groq's
 `llama-3.3-70b-versatile` (deprecated), Gemini 2.0 line (retired).
