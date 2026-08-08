@@ -10,6 +10,7 @@ model weights.
 ## Contents
 
 - [What this is](#what-this-is)
+- [Preview](#preview)
 - [Architecture](#architecture)
 - [Models](#models)
 - [Guardrails](#guardrails)
@@ -35,6 +36,22 @@ Given an entity name, the agent:
 It remembers past runs (Neon/Postgres), traces every node/LLM call/tool call (Logfire), is
 exposed as both a FastAPI endpoint and a Streamlit UI, and ships with an evaluation harness that
 runs an ablation study on its own Critic loop.
+
+## Preview
+
+<p align="center">
+  <img src="docs/screenshots/ui-architecture.png" width="720" alt="Streamlit UI showing the entity input and a live architecture diagram of the Planner, Executor, Critic, and Synthesizer pipeline">
+  <br>
+  <sub><em>Landing view — entity input, and the pipeline's own architecture rendered inline.</em></sub>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/ui-live-run.png" width="720" alt="Live research log streaming node-by-node progress next to a dossier status panel showing all five fields confirmed">
+  <br>
+  <sub><em>A run in progress — the research log streams node-by-node on the left (including a live
+  Critic replan cycle), while the dossier status panel on the right confirms each of the 5
+  required fields as they're sourced.</em></sub>
+</p>
 
 ## Architecture
 
