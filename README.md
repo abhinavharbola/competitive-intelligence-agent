@@ -4,17 +4,6 @@ An autonomous research agent that takes a company or product name and files a st
 
 Built as a portfolio project on entirely free-tier infrastructure: no paid APIs, no GPU, no local model weights.
 
-## What this is
-
-Given an entity name, the agent:
-
-1. Plans a small set of research sub-questions covering 5 required fields.
-2. Executes each one, web search or a calculation, and writes results to a scratchpad.
-3. Critiques its own coverage against the 5 fields, and can send itself back to re-plan up to 3 times if something is missing.
-4. Synthesizes a final brief from the scratchpad only, with numbered citations and a references list. Anything it couldn't source is marked "insufficient information," never invented.
-
-It remembers past runs (Neon/Postgres), traces every node/LLM call/tool call (Logfire), is exposed as both a FastAPI endpoint and a Streamlit UI, and ships with an evaluation harness that runs an ablation study on its own Critic loop.
-
 ## Preview
 
 <p align="center">
@@ -28,6 +17,17 @@ It remembers past runs (Neon/Postgres), traces every node/LLM call/tool call (Lo
   <br>
   <sub><em>A run in progress, the research log streams node-by-node on the left (including a live Critic replan cycle), while the dossier status panel on the right confirms each of the 5 required fields as they're sourced.</em></sub>
 </p>
+
+## What this is
+
+Given an entity name, the agent:
+
+1. Plans a small set of research sub-questions covering 5 required fields.
+2. Executes each one, web search or a calculation, and writes results to a scratchpad.
+3. Critiques its own coverage against the 5 fields, and can send itself back to re-plan up to 3 times if something is missing.
+4. Synthesizes a final brief from the scratchpad only, with numbered citations and a references list. Anything it couldn't source is marked "insufficient information," never invented.
+
+It remembers past runs (Neon/Postgres), traces every node/LLM call/tool call (Logfire), is exposed as both a FastAPI endpoint and a Streamlit UI, and ships with an evaluation harness that runs an ablation study on its own Critic loop.
 
 ## Architecture
 
