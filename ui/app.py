@@ -1,6 +1,13 @@
 import html
 import time
 import streamlit as st
+
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
 from agent.graph import build_graph, seed_from_memory, save_results
 from agent.state import ResearchState
 import config
