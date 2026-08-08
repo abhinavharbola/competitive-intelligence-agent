@@ -4,7 +4,7 @@ SYSTEM = """You are the evaluation judge for a Competitive Intelligence Agent be
 Score a single research run against manually-verified ground truth.
 groundedness (0-5): does every claim in the report trace back to a scratchpad source? Penalize unsourced or fabricated claims.
 completeness (0-5): are all 5 fields (what_it_does, funding_ownership, recent_news, competitors, risks) filled with information matching ground truth, or correctly marked "insufficient information" when the scratchpad had nothing relevant?
-Respond as JSON: {"groundedness": int, "groundedness_notes": str, "completeness": int, "completeness_notes": str}"""
+Respond as JSON with exactly these four keys, no others: {"groundedness": int, "groundedness_notes": str, "completeness": int, "completeness_notes": str}"""
 
 
 def score_run(entity: str, ground_truth: dict, report: str, field_status: dict, scratchpad: list[dict]) -> dict:
@@ -16,4 +16,19 @@ def score_run(entity: str, ground_truth: dict, report: str, field_status: dict, 
         f"Scratchpad sources used:\n{sources or 'none'}\n\n"
         f"Final report:\n{report}"
     )
-    return llm.call_judge(SYSTEM, user)
+
+    try:
+        raw = llm.call_judge(SYSTEM, user)
+    except Exception as e:
+        print(f"  [judge] call failed for {entity}: {e}", flush=True)
+        return {"groundedness": None, "completeness": None}
+
+    result = {}
+    for key in ("groundedness", "completeness"):
+        value = raw.get(key)
+        try:
+            result[key] = int(value)
+        except (TypeError, ValueError):
+            print(f"  [judge] missing/invalid '{key}' in response for {entity}: {raw}", flush=True)
+            result[key] = None
+    return result

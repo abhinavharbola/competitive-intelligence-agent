@@ -72,7 +72,7 @@ keep the evaluation judge structurally independent of the components it's judgin
 | Executor | `openai/gpt-oss-120b` | Groq | NIM's own hosting of this model has known tool-calling/timeout failures — Groq's hosting doesn't. |
 | Critic | `gemini-3.5-flash` | Gemini | Isolated from Planner/Executor's family so it isn't grading output from a model in its own family. |
 | Synthesizer | `gemini-3.5-flash` | Gemini | Same model as Critic, but a fully separate prompt/call — Critic never touches report content. |
-| Eval judge | `qwen/qwen2.5-7b-instruct` | NIM (account 2) | A third family, isolated from both Planner (Llama) and Critic/Synthesizer (Gemini) — the ablation study compares Critic on/off, so the judge scoring that comparison can't share a family with either side without biasing it. Originally spec'd as the 72B variant, which 404'd — that model exists as a downloadable NGC container for self-hosting but isn't actually live on NIM's hosted free-tier API, only the 7B is. |
+| Eval judge | `deepseek-ai/deepseek-v4-flash-0731` | NIM (account 2) | A third family, isolated from both Planner (Llama) and Critic/Synthesizer (Gemini) — the ablation study compares Critic on/off, so the judge scoring that comparison can't share a family with either side without biasing it. Went through three failed candidates first: `qwen/qwen2.5-72b-instruct` (exists only as a downloadable NGC container, never actually hosted on NIM's free-tier API), `qwen/qwen2.5-7b-instruct` (404 on this specific account — confirmed via `client.models.list()` that Qwen isn't in this account's catalog at all, even though it works fine on other NIM accounts), and several Mistral/Phi/Yi candidates that either 410'd (deprecated) or 404'd (not enabled for this account). Landed on DeepSeek after querying the account's actual live model list instead of guessing further. Deliberately avoided NVIDIA's own Nemotron models here even though several are available — most Nemotron variants are Llama fine-tunes, which would share lineage with the Planner and defeat the isolation this is meant to guarantee. |
 
 Rejected along the way: NIM's `gpt-oss-120b` (serving-backend failures), Groq's
 `llama-3.3-70b-versatile` (deprecated), Gemini 2.0 line (retired).
@@ -138,7 +138,7 @@ prompt-injection mitigation: search results come from the open web and are not t
 ```
 uvicorn api.main:app --reload      # API on :8000 — POST /research {"entity": "..."}
 streamlit run ui/app.py             # live dossier console UI
-python -m eval.run_ablation          # eval harness + critic on/off ablation study
+python -m eval.run_ablation          # eval harness + critic on/off ablation study (add --limit N for a smaller slice)
 ```
 
 The FastAPI endpoint returns the report, per-field status, replan/tool-call counts, the full
@@ -178,14 +178,23 @@ config.py     all model assignments and tunable limits in one place
 
 ## Known limitations
 
-- Nothing here has been load-tested; free-tier rate limits on NIM/Groq/Tavily will bite under
-  concurrent use.
-- The eval benchmark's ground truth is a scaffold, not verified data — see Evaluation above.
+- Gemini's free tier caps `gemini-3.5-flash` at 20 requests/day/project, and Critic + Synthesizer
+  share that same quota bucket since they're the same model. A full 15-entity ablation run
+  (30 total agent runs, each using at least 2 Gemini calls) will exceed this in one sitting —
+  `python -m eval.run_ablation --limit N` runs a smaller slice, or spread runs across days. When
+  the quota is hit mid-run, the system degrades gracefully (Critic routes straight to Synthesizer,
+  Synthesizer falls back to a scratchpad-only report) rather than crashing — verified against a
+  real quota exhaustion, not just a mocked one.
+- The eval benchmark's ground truth has been manually verified via web search for all 15 entities
+  as a point-in-time snapshot; fast-moving figures (valuations, funding rounds) will drift and
+  need periodic re-verification.
 - The Streamlit UI's custom CSS targets Streamlit's `data-testid` attributes, which are stable
   across recent versions but not a public API guarantee; a future Streamlit upgrade could change
   them, at worst degrading styling, not functionality.
 - No automated test suite. Everything in this repo has been verified via manual smoke tests and
   mocked unit-level checks during development, not CI.
+- Nothing here has been load-tested beyond the above; free-tier rate limits on NIM/Groq/Tavily
+  will also bite under concurrent use.
 
 ## Constraints
 
