@@ -1,6 +1,13 @@
 import html
 import time
 import streamlit as st
+
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
 from agent.graph import build_graph, seed_from_memory, save_results
 from agent.state import ResearchState
 import config
@@ -81,21 +88,32 @@ h1, h2, h3 { font-family: 'Fraunces', serif !important; color: var(--ink) !impor
 }
 .cia-brief-divider { border: none; border-top: 1px solid var(--hairline); margin: 0 0 22px 0; }
 
-.cia-flow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0; }
+.cia-flow-row {
+  display: grid; grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+  align-items: stretch; gap: 8px; margin: 4px 0;
+}
 .cia-flow-box {
-  border: 1px solid var(--hairline); border-radius: 4px; padding: 10px 16px;
-  background: #F8F6F1; text-align: center; min-width: 128px;
+  border: 1px solid var(--hairline); border-radius: 4px; padding: 10px 12px;
+  background: #F8F6F1; text-align: center; min-width: 0;
 }
 .cia-flow-role {
   font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.06em;
-  text-transform: uppercase; font-weight: 600; color: var(--ink);
+  text-transform: uppercase; font-weight: 600; color: var(--ink); overflow-wrap: break-word;
 }
 .cia-flow-model { font-size: 0.72rem; color: rgba(27,36,48,0.55); margin-top: 2px; }
-.cia-flow-arrow { font-family: 'IBM Plex Mono', monospace; color: var(--amber); font-size: 1.1rem; }
+.cia-flow-arrow {
+  font-family: 'IBM Plex Mono', monospace; color: var(--amber); font-size: 1.1rem;
+  display: flex; align-items: center; justify-content: center;
+}
 .cia-flow-note {
   font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: rgba(27,36,48,0.5);
-  width: 100%; margin-top: 6px;
+  margin-top: 10px;
 }
+
+div[data-testid="stExpander"] summary {
+  font-family: 'Public Sans', sans-serif; font-weight: 600; font-size: 1rem; color: var(--ink);
+}
+div[data-testid="stExpander"] summary p { font-family: 'Public Sans', sans-serif; font-weight: 600; color: var(--ink); }
 
 div[data-testid="stTextInput"] input {
   background: #F8F6F1; border: 1px solid var(--hairline); border-radius: 3px;
@@ -132,10 +150,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-with st.expander("How this works"):
+with st.expander("Architecture"):
     st.markdown(
         """
-        <div class="cia-flow">
+        <div class="cia-flow-row">
           <div class="cia-flow-box"><div class="cia-flow-role">Planner</div><div class="cia-flow-model">Llama &middot; NIM</div></div>
           <div class="cia-flow-arrow">&rarr;</div>
           <div class="cia-flow-box"><div class="cia-flow-role">Executor</div><div class="cia-flow-model">gpt-oss-120b &middot; Groq</div></div>
@@ -143,8 +161,8 @@ with st.expander("How this works"):
           <div class="cia-flow-box"><div class="cia-flow-role">Critic</div><div class="cia-flow-model">Gemini</div></div>
           <div class="cia-flow-arrow">&rarr;</div>
           <div class="cia-flow-box"><div class="cia-flow-role">Synthesizer</div><div class="cia-flow-model">Gemini</div></div>
-          <div class="cia-flow-note">Critic can send gaps back to Planner &mdash; up to 3 replan cycles. Synthesizer writes only from sourced scratchpad findings, never guesses.</div>
         </div>
+        <div class="cia-flow-note">Critic can send gaps back to Planner &mdash; up to 3 replan cycles. Synthesizer writes only from sourced scratchpad findings, never guesses.</div>
         """,
         unsafe_allow_html=True,
     )
