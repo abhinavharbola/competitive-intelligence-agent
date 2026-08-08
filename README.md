@@ -59,11 +59,11 @@ Four distinct model families, split across providers to keep rate-limit budgets 
 
 | Role | Model | Provider | Notes |
 |---|---|---|---|
-| Planner | `meta/llama-3.1-8b-instruct` | NIM (account 1) | Downgraded from 70B after both Llama-3.3-70B and 3.1-70B were unreliable (slow to the point of hanging, or outright unresponsive) on NIM's free tier. 8B is plenty for decomposing a request into 5 sub-questions. |
+| Planner | `meta/llama-3.1-8b-instruct` | NIM (account 1) | 70B model can be used but 8B is plenty for decomposing a request into 5 sub-questions. |
 | Executor | `openai/gpt-oss-120b` | Groq | NIM's own hosting of this model has known tool-calling/timeout failures, Groq's hosting doesn't. |
 | Critic | `gemini-3.5-flash` | Gemini | Isolated from Planner/Executor's family so it isn't grading output from a model in its own family. |
 | Synthesizer | `gemini-3.5-flash` | Gemini | Same model as Critic, but a fully separate prompt/call, Critic never touches report content. |
-| Eval judge | `deepseek-ai/deepseek-v4-flash-0731` | NIM (account 2) | A third family, isolated from both Planner (Llama) and Critic/Synthesizer (Gemini), the ablation study compares Critic on/off, so the judge scoring that comparison can't share a family with either side without biasing it. Went through three failed candidates first: `qwen/qwen2.5-72b-instruct` (exists only as a downloadable NGC container, never actually hosted on NIM's free-tier API), `qwen/qwen2.5-7b-instruct` (404 on this specific account, confirmed via `client.models.list()` that Qwen isn't in this account's catalog at all, even though it works fine on other NIM accounts), and several Mistral/Phi/Yi candidates that either 410'd (deprecated) or 404'd (not enabled for this account). Landed on DeepSeek after querying the account's actual live model list instead of guessing further. Deliberately avoided NVIDIA's own Nemotron models here even though several are available, most Nemotron variants are Llama fine-tunes, which would share lineage with the Planner and defeat the isolation this is meant to guarantee. |
+| Eval judge | `deepseek-ai/deepseek-v4-flash-0731` | NIM (account 2) | A third family, isolated from both Planner (Llama) and Critic/Synthesizer (Gemini), the ablation study compares Critic on/off, so the judge scoring that comparison can't share a family with either side without biasing it. |
 
 ## Guardrails
 
