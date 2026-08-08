@@ -1,0 +1,17 @@
+[
+  {"entity": "Anthropic", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
+  {"entity": "OpenAI", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
+  {"entity": "Stripe", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
+  {"entity": "Notion", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
+  {"entity": "Figma", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
+  {"entity": "Databricks", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
+  {"entity": "Snowflake", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
+  {"entity": "Canva", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
+  {"entity": "Discord", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
+  {"entity": "Airtable", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
+  {"entity": "Vercel", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
+  {"entity": "Linear", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
+  {"entity": "Ramp", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
+  {"entity": "Retool", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false},
+  {"entity": "Perplexity AI", "ground_truth": {"what_it_does": "TODO: verify", "funding_ownership": "TODO: verify", "recent_news": "TODO: verify", "competitors": "TODO: verify", "risks": "TODO: verify"}, "verified": false}
+]
