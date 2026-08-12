@@ -1,6 +1,6 @@
 # Competitive Intelligence Agent (CIA)
 
-An autonomous research agent that takes a company or product name and files a structured, sourced intelligence brief, what it does, funding & ownership, recent news, competitors, and risks, with every claim traceable to a search result or calculation, never a guess.
+An autonomous research agent that takes a company or product name as input and delivers a structured, sourced intelligence brief, addressing what it does/is, funding & ownership, recent news, competitors, and risks, with every claim traceable to a search result or calculation, never a guess.
 
 Built as a portfolio project on entirely free-tier infrastructure: no paid APIs, no GPU, no local model weights.
 
