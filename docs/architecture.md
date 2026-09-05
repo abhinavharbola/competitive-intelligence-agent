@@ -80,14 +80,15 @@ the run itself started from a cache hit.
 
 ## Model families
 
-Three distinct families across the pipeline, on purpose:
+Four distinct families across the pipeline, on purpose:
 
 - Llama (Planner, via NIM)
 - Gemini (Critic + Synthesizer)
-- Qwen (eval Judge, via a second NIM account)
+- DeepSeek (eval Judge, via a second NIM account)
+- gpt-oss (Executor, via Groq)
 
-Groq hosts gpt-oss-120b for the Executor — a fourth family, on its own provider so Executor's
-per-call volume (up to 15 calls/run) doesn't share a rate-limit budget with anything else.
+Groq hosts gpt-oss-120b for the Executor, on its own provider so Executor's per-call volume
+(up to 15 calls/run) doesn't share a rate-limit budget with anything else.
 
 Keeping Judge separate from Critic/Synthesizer's family matters specifically for the ablation
 study: the study compares "Critic loop on" vs "off," and a judge from the same family as the

@@ -19,10 +19,16 @@ def plan(state: ResearchState) -> ResearchState:
     if prior:
         user += f"Findings already confirmed, do not repeat these:\n{prior}\n"
 
-    response = llm.call_planner(SYSTEM, user)
-    steps = [
-        PlanStep(sub_question=s["sub_question"], field=s["field"], tool=s["tool"], status="pending")
-        for s in response["steps"]
-    ]
+    try:
+        response = llm.call_planner(SYSTEM, user)
+        steps = [
+            PlanStep(sub_question=s["sub_question"], field=s["field"], tool=s["tool"], status="pending")
+            for s in response["steps"]
+        ]
+    except Exception as e:
+        print(f"  [planner] failed after retries: {e}", flush=True)
+        state["stop_reason"] = state.get("stop_reason") or "planner_unavailable"
+        steps = []
+
     state["plan"] = steps
     return state

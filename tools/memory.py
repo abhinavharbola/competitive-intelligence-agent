@@ -28,24 +28,33 @@ def find_prior_research(entity_raw: str) -> dict | None:
         return None
 
     normalized = normalize_entity(entity_raw)
-    with _connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT created_at, findings FROM research_runs
-                WHERE entity_normalized = %s
-                ORDER BY created_at DESC LIMIT 1
-                """,
-                (normalized,),
-            )
-            row = cur.fetchone()
-            if row:
-                created_at, findings = row
-                age_days = (datetime.now(timezone.utc) - created_at).days
-                return {"exact_match": True, "age_days": age_days, "findings": findings}
+    try:
+        with _connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT created_at, findings, sources FROM research_runs
+                    WHERE entity_normalized = %s
+                    ORDER BY created_at DESC LIMIT 1
+                    """,
+                    (normalized,),
+                )
+                row = cur.fetchone()
+                if row:
+                    created_at, findings, sources = row
+                    age_days = (datetime.now(timezone.utc) - created_at).days
+                    return {
+                        "exact_match": True,
+                        "age_days": age_days,
+                        "findings": findings,
+                        "sources": sources,
+                    }
 
-            cur.execute("SELECT DISTINCT entity_normalized FROM research_runs")
-            candidates = [r[0] for r in cur.fetchall()]
+                cur.execute("SELECT DISTINCT entity_normalized FROM research_runs")
+                candidates = [r[0] for r in cur.fetchall()]
+    except Exception as e:
+        print(f"  [memory] lookup failed, continuing without cache: {e}", flush=True)
+        return None
 
     best_score, best_candidate = 0, None
     for candidate in candidates:
@@ -64,13 +73,16 @@ def save_research(entity_raw: str, findings: dict, sources: dict) -> None:
         return
 
     normalized = normalize_entity(entity_raw)
-    with _connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO research_runs (entity_normalized, entity_raw, findings, sources)
-                VALUES (%s, %s, %s, %s)
-                """,
-                (normalized, entity_raw, Jsonb(findings), Jsonb(sources)),
-            )
-        conn.commit()
+    try:
+        with _connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO research_runs (entity_normalized, entity_raw, findings, sources)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (normalized, entity_raw, Jsonb(findings), Jsonb(sources)),
+                )
+            conn.commit()
+    except Exception as e:
+        print(f"  [memory] save failed, result not cached: {e}", flush=True)

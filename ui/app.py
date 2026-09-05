@@ -247,17 +247,19 @@ if run_clicked and entity:
         status_box = st.empty()
 
     log_lines: list = []
-    seen_plan_len = 0
+    seen_plan_signature = None
     seen_scratchpad_len = 0
     seen_replan_count = 0
+    logged_approval = False
     final_state = None
 
     for step_state in app.stream(initial_state, stream_mode="values"):
         final_state = step_state
 
-        if len(step_state["plan"]) != seen_plan_len and step_state["plan"]:
+        plan_signature = tuple(s["sub_question"] for s in step_state["plan"])
+        if step_state["plan"] and plan_signature != seen_plan_signature:
             append_log(log_lines, f"PLAN   {len(step_state['plan'])} sub-questions drafted", "plan")
-            seen_plan_len = len(step_state["plan"])
+            seen_plan_signature = plan_signature
 
         for entry in step_state["scratchpad"][seen_scratchpad_len:]:
             label = FIELD_LABELS.get(entry["field"], entry["field"])
@@ -268,8 +270,10 @@ if run_clicked and entity:
             gaps = ", ".join(step_state["critique"]["gaps"])
             append_log(log_lines, f"CRITIC gaps in [{gaps}] -> replanning (cycle {step_state['replan_count']}/{config.MAX_REPLAN_CYCLES})", "critic")
             seen_replan_count = step_state["replan_count"]
-        elif step_state["critique"]["approved"]:
+            logged_approval = False
+        elif step_state["critique"]["approved"] and not logged_approval:
             append_log(log_lines, "CRITIC all fields confirmed, approved", "critic")
+            logged_approval = True
 
         if step_state["stop_reason"]:
             append_log(log_lines, f"STOP   {step_state['stop_reason']}", "stop")

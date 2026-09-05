@@ -56,6 +56,7 @@ def seed_from_memory(state: ResearchState, entity: str) -> tuple[ResearchState, 
     if prior["age_days"] > config.MEMORY_CACHE_DAYS:
         return state, ""
 
+    sources = prior.get("sources") or {}
     for field, result in prior["findings"].items():
         if field == "recent_news":
             continue
@@ -66,7 +67,7 @@ def seed_from_memory(state: ResearchState, entity: str) -> tuple[ResearchState, 
                 tool="memory",
                 args="",
                 result=result,
-                source=f"cache ({prior['age_days']}d old)",
+                source=sources.get(field, f"cache ({prior['age_days']}d old)"),
             )
         )
     return state, ""
@@ -78,7 +79,7 @@ def save_results(entity: str, final_state: ResearchState) -> None:
     save_research(entity, findings, sources)
 
 
-def run(entity: str, critic_enabled: bool = True) -> ResearchState:
+def run(entity: str, critic_enabled: bool = True, use_memory: bool = True) -> ResearchState:
     initial_state: ResearchState = {
         "entity": entity,
         "plan": [],
@@ -93,12 +94,16 @@ def run(entity: str, critic_enabled: bool = True) -> ResearchState:
         "stop_reason": "",
         "memory_note": "",
     }
-    initial_state, memory_note = seed_from_memory(initial_state, entity)
+
+    memory_note = ""
+    if use_memory:
+        initial_state, memory_note = seed_from_memory(initial_state, entity)
 
     app = build_graph(critic_enabled=critic_enabled)
     final_state = app.invoke(initial_state)
     final_state["memory_note"] = memory_note
 
-    save_results(entity, final_state)
+    if use_memory:
+        save_results(entity, final_state)
 
     return final_state

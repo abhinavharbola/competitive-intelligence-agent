@@ -18,12 +18,14 @@ def critique(state: ResearchState) -> ResearchState:
 
     try:
         result = llm.call_gemini(config.CRITIC_MODEL, SYSTEM, user)
+        approved = bool(result["approved"])
+        gaps = list(result["gaps"])
     except Exception as e:
         print(f"  [critic] failed after retries: {e}", flush=True)
         state["stop_reason"] = "critic_unavailable"
         return state
 
-    state["critique"] = {"approved": result["approved"], "gaps": result["gaps"]}
-    if not result["approved"]:
+    state["critique"] = {"approved": approved, "gaps": gaps}
+    if not approved:
         state["replan_count"] += 1
     return state

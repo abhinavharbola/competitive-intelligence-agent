@@ -109,8 +109,8 @@ competitive-intelligence-agent/
 ├── api/main.py                # FastAPI, research endpoint
 │
 ├── eval/
-│   ├── benchmark.json         # 15-20 companies + ground truth
-│   ├── judge.py               # NIM (acct 2, Qwen2.5-72B) judge calls
+│   ├── benchmark.json         # 15 companies + ground truth
+│   ├── judge.py               # NIM (acct 2, deepseek-ai/deepseek-v4-flash-0731) judge calls
 │   ├── run_ablation.py        # critic on/off runner
 │   └── results/
 │
@@ -157,11 +157,14 @@ The FastAPI endpoint returns the report, per-field status, replan/tool-call coun
 
 `/eval` is the project's core differentiator, not a checkbox.
 
-- [`benchmark.json`](eval/benchmark.json) holds 15 real companies. Ground truth for each of the 5 fields is left as `TODO: verify` with `"verified": false`, this must be manually checked and filled in before the benchmark means anything; `run_ablation.py` warns on unverified entries rather than silently scoring against placeholder text.
-- [`judge.py`](eval/judge.py) scores each run's groundedness (does every claim trace back to a scratchpad source?) and completeness (are all 5 fields correctly filled or marked insufficient?) via the isolated NIM/Qwen judge. Efficiency (tool calls, wall-clock) is computed directly, no LLM call needed for that.
+- [`benchmark.json`](eval/benchmark.json) holds 15 real companies with ground truth manually verified via web search and `"verified": true` on every entry; `run_ablation.py` warns if any entry is left unverified rather than silently scoring against placeholder text.
+- [`judge.py`](eval/judge.py) scores each run's groundedness (does every claim trace back to a scratchpad source?) and completeness (are all 5 fields correctly filled or marked insufficient?) via the isolated NIM/DeepSeek judge. Efficiency (tool calls, wall-clock) is computed directly, no LLM call needed for that.
 - [`run_ablation.py`](eval/run_ablation.py) runs the full benchmark twice, Critic loop on, and off, and writes the delta between them to `eval/results/summary.json`. This is the headline result: does the Critic's replan loop actually improve groundedness/completeness enough to justify its extra tool calls and latency, measured, not assumed.
 
 ## Known limitations
 
 - Gemini's free tier caps `gemini-3.5-flash` at 20 requests/day/project, and Critic + Synthesizer share that same quota bucket since they're the same model. A full 15-entity ablation run (30 total agent runs, each using at least 2 Gemini calls) will exceed this in one sitting, `python -m eval.run_ablation --limit N` runs a smaller slice, or spread runs across days. When the quota is hit mid-run, the system degrades gracefully (Critic routes straight to Synthesizer, Synthesizer falls back to a scratchpad-only report) rather than crashing, verified against a real quota exhaustion, not just a mocked one.
 - The eval benchmark's ground truth has been manually verified via web search for all 15 entities as a point-in-time snapshot; fast-moving figures (valuations, funding rounds) will drift and need periodic re-verification.
+
+
+

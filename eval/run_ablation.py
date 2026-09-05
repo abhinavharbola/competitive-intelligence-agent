@@ -21,7 +21,7 @@ def run_condition(benchmark: list[dict], critic_enabled: bool) -> list[dict]:
         print(f"\n=== {entity} (critic_enabled={critic_enabled}) ===", flush=True)
         try:
             start = time.time()
-            final_state = run(entity, critic_enabled=critic_enabled)
+            final_state = run(entity, critic_enabled=critic_enabled, use_memory=False)
             elapsed = time.time() - start
 
             judge_result = score_run(
