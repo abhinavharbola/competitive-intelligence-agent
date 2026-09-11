@@ -56,7 +56,6 @@ def seed_from_memory(state: ResearchState, entity: str) -> tuple[ResearchState, 
     if prior["age_days"] > config.MEMORY_CACHE_DAYS:
         return state, ""
 
-    sources = prior.get("sources") or {}
     for field, result in prior["findings"].items():
         if field == "recent_news":
             continue
@@ -67,7 +66,7 @@ def seed_from_memory(state: ResearchState, entity: str) -> tuple[ResearchState, 
                 tool="memory",
                 args="",
                 result=result,
-                source=sources.get(field, f"cache ({prior['age_days']}d old)"),
+                source=f"cache ({prior['age_days']}d old)",
             )
         )
     return state, ""

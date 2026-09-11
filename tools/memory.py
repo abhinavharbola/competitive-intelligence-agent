@@ -33,7 +33,7 @@ def find_prior_research(entity_raw: str) -> dict | None:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT created_at, findings, sources FROM research_runs
+                    SELECT created_at, findings FROM research_runs
                     WHERE entity_normalized = %s
                     ORDER BY created_at DESC LIMIT 1
                     """,
@@ -41,14 +41,9 @@ def find_prior_research(entity_raw: str) -> dict | None:
                 )
                 row = cur.fetchone()
                 if row:
-                    created_at, findings, sources = row
+                    created_at, findings = row
                     age_days = (datetime.now(timezone.utc) - created_at).days
-                    return {
-                        "exact_match": True,
-                        "age_days": age_days,
-                        "findings": findings,
-                        "sources": sources,
-                    }
+                    return {"exact_match": True, "age_days": age_days, "findings": findings}
 
                 cur.execute("SELECT DISTINCT entity_normalized FROM research_runs")
                 candidates = [r[0] for r in cur.fetchall()]

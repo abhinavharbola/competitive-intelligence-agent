@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from agent.graph import run
 
@@ -22,7 +22,15 @@ class ResearchResponse(BaseModel):
 
 @app.post("/research", response_model=ResearchResponse)
 def research(request: ResearchRequest) -> ResearchResponse:
-    final_state = run(request.entity)
+    if not request.entity.strip():
+        raise HTTPException(status_code=400, detail="entity must not be empty")
+
+    try:
+        final_state = run(request.entity)
+    except Exception as e:
+        print(f"  [api] research failed for {request.entity!r}: {e}", flush=True)
+        raise HTTPException(status_code=500, detail="research run failed, please try again")
+
     return ResearchResponse(
         entity=request.entity,
         report=final_state["report"],
