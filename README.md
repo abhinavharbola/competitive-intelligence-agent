@@ -18,7 +18,7 @@ Built as a portfolio project on entirely free-tier infrastructure: no paid APIs,
   <sub>A run in progress, the research log streams node-by-node on the left (including a live Critic replan cycle), while the dossier status panel on the right confirms each of the 5 required fields as they're sourced.</sub>
 </p>
 
-> Additional screenshots and an example report (downloaded) are in [`assets/`](assets/).
+> Additional screenshots and example report in [`assets/`](assets/).
 
 ## What this is
 
