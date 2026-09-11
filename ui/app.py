@@ -153,13 +153,13 @@ with st.expander("Architecture"):
     st.markdown(
         """
         <div class="cia-flow-row">
-          <div class="cia-flow-box"><div class="cia-flow-role">Planner</div><div class="cia-flow-model">Llama &middot; NIM</div></div>
+          <div class="cia-flow-box"><div class="cia-flow-role">Planner</div><div class="cia-flow-model">Nemotron 3 Super &middot; NIM</div></div>
           <div class="cia-flow-arrow">&rarr;</div>
           <div class="cia-flow-box"><div class="cia-flow-role">Executor</div><div class="cia-flow-model">gpt-oss-120b &middot; Groq</div></div>
           <div class="cia-flow-arrow">&rarr;</div>
-          <div class="cia-flow-box"><div class="cia-flow-role">Critic</div><div class="cia-flow-model">Gemini</div></div>
+          <div class="cia-flow-box"><div class="cia-flow-role">Critic</div><div class="cia-flow-model">Gemini 3.5 Flash-Lite</div></div>
           <div class="cia-flow-arrow">&rarr;</div>
-          <div class="cia-flow-box"><div class="cia-flow-role">Synthesizer</div><div class="cia-flow-model">Gemini</div></div>
+          <div class="cia-flow-box"><div class="cia-flow-role">Synthesizer</div><div class="cia-flow-model">Gemini 3.5 Flash</div></div>
         </div>
         <div class="cia-flow-note">Critic can send gaps back to Planner &mdash; up to 3 replan cycles. Synthesizer writes only from sourced scratchpad findings, never guesses.</div>
         """,
@@ -225,11 +225,28 @@ if run_clicked and entity:
 
     log_lines: list = []
     seen_plan_signature = None
-    seen_scratchpad_len = 0
     seen_replan_count = 0
     logged_approval = False
+    logged_next_stage = False
+    seen_blocked: set = set()
     final_state = None
     run_failed = False
+
+    # app.stream() only yields once a node fully finishes, so Planner and
+    # Synthesizer (each a single LLM call that can take 15-30s+) would
+    # otherwise leave the log looking frozen for that whole stretch. Log
+    # what's already known immediately, then log a "next stage" placeholder
+    # the instant a stage's output arrives, rather than waiting on the next
+    # (invisible, in-flight) node to finish before saying anything.
+    append_log(log_lines, f"START  researching {entity}", "plan")
+    if memory_note:
+        append_log(log_lines, f"MEMORY {memory_note}", "critic")
+    for seeded in initial_state["scratchpad"]:
+        label = FIELD_LABELS.get(seeded["field"], seeded["field"])
+        append_log(log_lines, f"FOUND  [{label}] via {seeded['tool']}: {seeded['source'][:70]}", "found")
+    append_log(log_lines, "PLANNING research strategy...", "plan")
+    log_box.markdown(f'<div class="cia-log">{"<br>".join(log_lines)}</div>', unsafe_allow_html=True)
+    seen_scratchpad_len = len(initial_state["scratchpad"])
 
     try:
         for step_state in app.stream(initial_state, stream_mode="values"):
@@ -238,24 +255,46 @@ if run_clicked and entity:
             plan_signature = tuple(s["sub_question"] for s in step_state["plan"])
             if step_state["plan"] and plan_signature != seen_plan_signature:
                 append_log(log_lines, f"PLAN   {len(step_state['plan'])} sub-questions drafted", "plan")
+                append_log(log_lines, "SEARCHING sources for each sub-question...", "found")
                 seen_plan_signature = plan_signature
+                logged_next_stage = False
 
-            for entry in step_state["scratchpad"][seen_scratchpad_len:]:
+            new_entries = step_state["scratchpad"][seen_scratchpad_len:]
+            for entry in new_entries:
                 label = FIELD_LABELS.get(entry["field"], entry["field"])
                 append_log(log_lines, f"FOUND  [{label}] via {entry['tool']}: {entry['source'][:70]}", "found")
             seen_scratchpad_len = len(step_state["scratchpad"])
+
+            for step in step_state["plan"]:
+                block_key = (step["field"], step["sub_question"])
+                if step["status"] == "blocked" and block_key not in seen_blocked:
+                    label = FIELD_LABELS.get(step["field"], step["field"])
+                    append_log(log_lines, f"SKIP   [{label}] duplicate tool call detected, blocked", "stop")
+                    seen_blocked.add(block_key)
+
+            if new_entries and not logged_next_stage:
+                append_log(log_lines, "CHECKING coverage against required fields...", "critic")
+                logged_next_stage = True
 
             if step_state["replan_count"] != seen_replan_count:
                 gaps = ", ".join(step_state["critique"]["gaps"])
                 append_log(log_lines, f"CRITIC gaps in [{gaps}] -> replanning (cycle {step_state['replan_count']}/{config.MAX_REPLAN_CYCLES})", "critic")
                 seen_replan_count = step_state["replan_count"]
                 logged_approval = False
+                logged_next_stage = False
             elif step_state["critique"]["approved"] and not logged_approval:
                 append_log(log_lines, "CRITIC all fields confirmed, approved", "critic")
+                append_log(log_lines, "WRITING final brief...", "plan")
                 logged_approval = True
 
             if step_state["stop_reason"]:
                 append_log(log_lines, f"STOP   {step_state['stop_reason']}", "stop")
+                if not logged_approval:
+                    append_log(log_lines, "WRITING final brief from what was confirmed so far...", "plan")
+                    logged_approval = True
+
+            if step_state["report"]:
+                append_log(log_lines, "REPORT filed", "found")
 
             log_box.markdown(f'<div class="cia-log">{"<br>".join(log_lines)}</div>', unsafe_allow_html=True)
 

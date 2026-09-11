@@ -9,7 +9,6 @@ env/
 
 eval/results/*.json
 
-.streamlit/
 *.log
 
 .DS_Store
