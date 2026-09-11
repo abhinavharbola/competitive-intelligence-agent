@@ -9,9 +9,13 @@ _LLM_TIMEOUT_SECONDS = 60
 _RETRY_ATTEMPTS = 3
 _RETRY_BASE_DELAY = 2
 
-_nim_planner = OpenAI(api_key=config.NIM_PLANNER_API_KEY, base_url=config.NIM_BASE_URL, timeout=_LLM_TIMEOUT_SECONDS, max_retries=1)
-_nim_judge = OpenAI(api_key=config.NIM_JUDGE_API_KEY, base_url=config.NIM_BASE_URL, timeout=_LLM_TIMEOUT_SECONDS, max_retries=1)
-_groq = OpenAI(api_key=config.GROQ_API_KEY, base_url=config.GROQ_BASE_URL, timeout=_LLM_TIMEOUT_SECONDS, max_retries=1)
+# max_retries=0: the OpenAI client should not retry on its own, all retry
+# logic lives in _with_retries below. Two independent retry layers meant a
+# single stuck call could silently retry up to 3 x 2 = 6 times before
+# raising, which made the wall-clock guardrail unreliable.
+_nim_planner = OpenAI(api_key=config.NIM_PLANNER_API_KEY, base_url=config.NIM_BASE_URL, timeout=_LLM_TIMEOUT_SECONDS, max_retries=0)
+_nim_judge = OpenAI(api_key=config.NIM_JUDGE_API_KEY or "unset", base_url=config.NIM_BASE_URL, timeout=_LLM_TIMEOUT_SECONDS, max_retries=0)
+_groq = OpenAI(api_key=config.GROQ_API_KEY, base_url=config.GROQ_BASE_URL, timeout=_LLM_TIMEOUT_SECONDS, max_retries=0)
 _gemini = genai.Client(api_key=config.GEMINI_API_KEY)
 
 
@@ -58,6 +62,8 @@ def call_executor(system: str, user: str) -> dict:
 
 
 def call_judge(system: str, user: str) -> dict:
+    if not config.NIM_JUDGE_API_KEY:
+        raise RuntimeError("NIM_JUDGE_API_KEY not set, required for eval/judge.py")
     return _call_openai_compatible(_nim_judge, config.JUDGE_MODEL, system, user)
 
 

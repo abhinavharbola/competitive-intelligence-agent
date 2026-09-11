@@ -1,5 +1,6 @@
-from agent import llm
+from agent import llm, schemas
 from agent.state import ResearchState, PlanStep
+from agent.guardrails import wall_clock_exceeded
 
 SYSTEM = """You are the Planner for a Competitive Intelligence Agent.
 Given a company/product name and, optionally, gaps flagged by the Critic, produce a research plan.
@@ -10,6 +11,11 @@ Respond as JSON: {"steps": [{"sub_question": str, "field": str, "tool": "search"
 
 
 def plan(state: ResearchState) -> ResearchState:
+    if wall_clock_exceeded(state):
+        state["stop_reason"] = state.get("stop_reason") or "wall_clock"
+        state["plan"] = []
+        return state
+
     gaps = state["critique"]["gaps"] if state.get("critique") else []
     prior = "\n".join(f"- {e['field']}: {e['result'][:200]}" for e in state.get("scratchpad", []))
 
@@ -21,9 +27,10 @@ def plan(state: ResearchState) -> ResearchState:
 
     try:
         response = llm.call_planner(SYSTEM, user)
+        validated = schemas.valid_planner_steps(response)
         steps = [
-            PlanStep(sub_question=s["sub_question"], field=s["field"], tool=s["tool"], status="pending")
-            for s in response["steps"]
+            PlanStep(sub_question=s.sub_question, field=s.field, tool=s.tool, status="pending")
+            for s in validated
         ]
     except Exception as e:
         print(f"  [planner] failed after retries: {e}", flush=True)

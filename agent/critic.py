@@ -1,5 +1,6 @@
-from agent import llm
+from agent import llm, schemas
 from agent.state import ResearchState
+from agent.guardrails import wall_clock_exceeded
 import config
 
 SYSTEM = """You are the Critic for a Competitive Intelligence Agent.
@@ -10,6 +11,16 @@ approved is true only when gaps is empty."""
 
 
 def critique(state: ResearchState) -> ResearchState:
+    if state.get("stop_reason"):
+        # Executor already hit a hard stop, the router will send this straight
+        # to the synthesizer regardless of what the critic says, so don't burn
+        # an LLM call on a verdict nobody will act on.
+        return state
+
+    if wall_clock_exceeded(state):
+        state["stop_reason"] = "wall_clock"
+        return state
+
     scratchpad_summary = "\n".join(
         f"- field={e['field']} source={e['source']}\n  {e['result'][:400]}"
         for e in state["scratchpad"]
@@ -18,8 +29,9 @@ def critique(state: ResearchState) -> ResearchState:
 
     try:
         result = llm.call_gemini(config.CRITIC_MODEL, SYSTEM, user)
-        approved = bool(result["approved"])
-        gaps = list(result["gaps"])
+        parsed = schemas.CriticResponse.model_validate(result)
+        approved = parsed.approved
+        gaps = parsed.gaps
     except Exception as e:
         print(f"  [critic] failed after retries: {e}", flush=True)
         state["stop_reason"] = "critic_unavailable"

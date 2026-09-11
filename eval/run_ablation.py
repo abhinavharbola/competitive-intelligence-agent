@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 from agent.graph import run
 from eval.judge import score_run
+import config
 
 BENCHMARK_PATH = Path(__file__).parent / "benchmark.json"
 RESULTS_DIR = Path(__file__).parent / "results"
@@ -71,6 +72,12 @@ def summarize(results: list[dict]) -> dict:
 
 
 def main():
+    if not config.NIM_JUDGE_API_KEY:
+        raise SystemExit(
+            "NIM_JUDGE_API_KEY is not set. The ablation judge needs its own NIM account, "
+            "kept separate from the Planner's account, set it in .env before running this."
+        )
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=None, help="Only run the first N benchmark entities (useful given free-tier daily quotas)")
     args = parser.parse_args()

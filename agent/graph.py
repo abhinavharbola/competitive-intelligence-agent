@@ -42,6 +42,23 @@ def build_graph(critic_enabled: bool = True):
     return graph.compile()
 
 
+def build_initial_state(entity: str) -> ResearchState:
+    return {
+        "entity": entity,
+        "plan": [],
+        "scratchpad": [],
+        "critique": {"approved": False, "gaps": []},
+        "replan_count": 0,
+        "tool_call_count": 0,
+        "tool_call_log": [],
+        "start_time": time.time(),
+        "report": "",
+        "field_status": {},
+        "stop_reason": "",
+        "memory_note": "",
+    }
+
+
 def seed_from_memory(state: ResearchState, entity: str) -> tuple[ResearchState, str]:
     prior = find_prior_research(entity)
     if not prior:
@@ -79,20 +96,7 @@ def save_results(entity: str, final_state: ResearchState) -> None:
 
 
 def run(entity: str, critic_enabled: bool = True, use_memory: bool = True) -> ResearchState:
-    initial_state: ResearchState = {
-        "entity": entity,
-        "plan": [],
-        "scratchpad": [],
-        "critique": {"approved": False, "gaps": []},
-        "replan_count": 0,
-        "tool_call_count": 0,
-        "tool_call_log": [],
-        "start_time": time.time(),
-        "report": "",
-        "field_status": {},
-        "stop_reason": "",
-        "memory_note": "",
-    }
+    initial_state = build_initial_state(entity)
 
     memory_note = ""
     if use_memory:

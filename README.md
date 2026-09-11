@@ -164,4 +164,3 @@ The FastAPI endpoint returns the report, per-field status, replan/tool-call coun
 ## Known limitations
 
 - Gemini's free tier caps `gemini-3.5-flash` at 20 requests/day/project, and Critic + Synthesizer share that same quota bucket since they're the same model. A full 15-entity ablation run (30 total agent runs, each using at least 2 Gemini calls) will exceed this in one sitting, `python -m eval.run_ablation --limit N` runs a smaller slice, or spread runs across days. When the quota is hit mid-run, the system degrades gracefully (Critic routes straight to Synthesizer, Synthesizer falls back to a scratchpad-only report) rather than crashing, verified against a real quota exhaustion, not just a mocked one.
-- The eval benchmark's ground truth has been manually verified via web search for all 15 entities as a point-in-time snapshot; fast-moving figures (valuations, funding rounds) will drift and need periodic re-verification.

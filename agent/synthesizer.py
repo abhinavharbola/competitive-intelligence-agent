@@ -1,4 +1,4 @@
-from agent import llm
+from agent import llm, schemas
 from agent.state import ResearchState
 import config
 
@@ -28,8 +28,12 @@ def synthesize(state: ResearchState) -> ResearchState:
 
     try:
         result = llm.call_gemini(config.SYNTHESIZER_MODEL, SYSTEM, user)
-        state["report"] = result["report_markdown"]
-        state["field_status"] = result["field_status"]
+        parsed = schemas.SynthesizerResponse.model_validate(result)
+        field_status = dict(parsed.field_status)
+        for field in config.REQUIRED_FIELDS:
+            field_status.setdefault(field, "insufficient information")
+        state["report"] = parsed.report_markdown
+        state["field_status"] = field_status
     except Exception as e:
         print(f"  [synthesizer] failed after retries: {e}", flush=True)
         state["stop_reason"] = state["stop_reason"] or "synthesizer_unavailable"

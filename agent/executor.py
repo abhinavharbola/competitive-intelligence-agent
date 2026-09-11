@@ -1,5 +1,5 @@
 import time
-from agent import llm
+from agent import llm, schemas
 from agent.state import ResearchState, ScratchpadEntry
 from tools.search import web_search
 from tools.calculator import calculate
@@ -27,7 +27,8 @@ def execute(state: ResearchState) -> ResearchState:
             args_response = llm.call_executor(
                 SYSTEM, f"Sub-question: {step['sub_question']}\nTool: {step['tool']}"
             )
-            arg_value = args_response.get("query") or args_response.get("expression", "")
+            args = schemas.ExecutorArgs.model_validate(args_response)
+            arg_value = args.query or args.expression
             call_key = f"{step['tool']}:{arg_value.strip().lower()}"
 
             if call_key in state["tool_call_log"]:

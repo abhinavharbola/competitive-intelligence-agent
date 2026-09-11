@@ -3,17 +3,29 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
-NIM_PLANNER_API_KEY = os.environ["NIM_PLANNER_API_KEY"]
-NIM_JUDGE_API_KEY = os.environ["NIM_JUDGE_API_KEY"]
 
-GROQ_API_KEY = os.environ["GROQ_API_KEY"]
+def _required(key: str) -> str:
+    value = os.getenv(key)
+    if not value:
+        raise RuntimeError(
+            f"missing required environment variable: {key} (check your .env file)"
+        )
+    return value
+
+
+NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
+NIM_PLANNER_API_KEY = _required("NIM_PLANNER_API_KEY")
+# Only needed for eval/judge.py, kept optional so the API/UI don't require an
+# eval-only account just to import config.
+NIM_JUDGE_API_KEY = os.getenv("NIM_JUDGE_API_KEY", "")
+
+GROQ_API_KEY = _required("GROQ_API_KEY")
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-TAVILY_API_KEY = os.environ["TAVILY_API_KEY"]
-NEON_DSN = os.environ.get("NEON_DSN", "")
-LOGFIRE_TOKEN = os.environ.get("LOGFIRE_TOKEN", "")
+GEMINI_API_KEY = _required("GEMINI_API_KEY")
+TAVILY_API_KEY = _required("TAVILY_API_KEY")
+NEON_DSN = os.getenv("NEON_DSN", "")
+LOGFIRE_TOKEN = os.getenv("LOGFIRE_TOKEN", "")
 
 PLANNER_MODEL = "meta/llama-3.1-8b-instruct"
 EXECUTOR_MODEL = "openai/gpt-oss-120b"

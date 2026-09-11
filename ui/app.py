@@ -8,8 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from agent.graph import build_graph, seed_from_memory, save_results
-from agent.state import ResearchState
+from agent.graph import build_graph, build_initial_state, seed_from_memory, save_results
 import config
 
 st.set_page_config(page_title="Competitive Intelligence Agent", layout="wide")
@@ -170,9 +169,11 @@ with st.expander("Architecture"):
 with st.container(border=True):
     col1, col2 = st.columns([5, 1])
     with col1:
-        entity = st.text_input("Company or product", placeholder="e.g. Anthropic", label_visibility="collapsed")
+        entity_input = st.text_input("Company or product", placeholder="e.g. Anthropic", label_visibility="collapsed")
     with col2:
         run_clicked = st.button("Run inquiry", use_container_width=True)
+
+entity = entity_input.strip()
 
 FIELD_LABELS = {
     "what_it_does": "What it does",
@@ -181,20 +182,6 @@ FIELD_LABELS = {
     "competitors": "Competitors",
     "risks": "Risks",
 }
-
-
-def render_stamps(field_status: dict) -> str:
-    chips = []
-    for field, label in FIELD_LABELS.items():
-        status = field_status.get(field)
-        if status == "confirmed":
-            cls, text = "stamp-confirmed", "confirmed"
-        elif status == "insufficient information":
-            cls, text = "stamp-insufficient", "insufficient"
-        else:
-            cls, text = "stamp-pending", "pending"
-        chips.append(f'<span class="stamp {cls}">{html.escape(label)} &middot; {text}</span>')
-    return "".join(chips)
 
 
 def render_status_card(field_status: dict) -> str:
@@ -219,22 +206,12 @@ def append_log(lines: list, entry: str, tag: str = "") -> None:
     lines.append(f'<span class="{cls}">{html.escape(entry)}</span>')
 
 
+if run_clicked and not entity:
+    st.warning("Enter a company or product name first.")
+
 if run_clicked and entity:
     app = build_graph()
-    initial_state: ResearchState = {
-        "entity": entity,
-        "plan": [],
-        "scratchpad": [],
-        "critique": {"approved": False, "gaps": []},
-        "replan_count": 0,
-        "tool_call_count": 0,
-        "tool_call_log": [],
-        "start_time": time.time(),
-        "report": "",
-        "field_status": {},
-        "stop_reason": "",
-        "memory_note": "",
-    }
+    initial_state = build_initial_state(entity)
     initial_state, memory_note = seed_from_memory(initial_state, entity)
     initial_state["memory_note"] = memory_note
 
@@ -252,38 +229,43 @@ if run_clicked and entity:
     seen_replan_count = 0
     logged_approval = False
     final_state = None
+    run_failed = False
 
-    for step_state in app.stream(initial_state, stream_mode="values"):
-        final_state = step_state
+    try:
+        for step_state in app.stream(initial_state, stream_mode="values"):
+            final_state = step_state
 
-        plan_signature = tuple(s["sub_question"] for s in step_state["plan"])
-        if step_state["plan"] and plan_signature != seen_plan_signature:
-            append_log(log_lines, f"PLAN   {len(step_state['plan'])} sub-questions drafted", "plan")
-            seen_plan_signature = plan_signature
+            plan_signature = tuple(s["sub_question"] for s in step_state["plan"])
+            if step_state["plan"] and plan_signature != seen_plan_signature:
+                append_log(log_lines, f"PLAN   {len(step_state['plan'])} sub-questions drafted", "plan")
+                seen_plan_signature = plan_signature
 
-        for entry in step_state["scratchpad"][seen_scratchpad_len:]:
-            label = FIELD_LABELS.get(entry["field"], entry["field"])
-            append_log(log_lines, f"FOUND  [{label}] via {entry['tool']}: {entry['source'][:70]}", "found")
-        seen_scratchpad_len = len(step_state["scratchpad"])
+            for entry in step_state["scratchpad"][seen_scratchpad_len:]:
+                label = FIELD_LABELS.get(entry["field"], entry["field"])
+                append_log(log_lines, f"FOUND  [{label}] via {entry['tool']}: {entry['source'][:70]}", "found")
+            seen_scratchpad_len = len(step_state["scratchpad"])
 
-        if step_state["replan_count"] != seen_replan_count:
-            gaps = ", ".join(step_state["critique"]["gaps"])
-            append_log(log_lines, f"CRITIC gaps in [{gaps}] -> replanning (cycle {step_state['replan_count']}/{config.MAX_REPLAN_CYCLES})", "critic")
-            seen_replan_count = step_state["replan_count"]
-            logged_approval = False
-        elif step_state["critique"]["approved"] and not logged_approval:
-            append_log(log_lines, "CRITIC all fields confirmed, approved", "critic")
-            logged_approval = True
+            if step_state["replan_count"] != seen_replan_count:
+                gaps = ", ".join(step_state["critique"]["gaps"])
+                append_log(log_lines, f"CRITIC gaps in [{gaps}] -> replanning (cycle {step_state['replan_count']}/{config.MAX_REPLAN_CYCLES})", "critic")
+                seen_replan_count = step_state["replan_count"]
+                logged_approval = False
+            elif step_state["critique"]["approved"] and not logged_approval:
+                append_log(log_lines, "CRITIC all fields confirmed, approved", "critic")
+                logged_approval = True
 
-        if step_state["stop_reason"]:
-            append_log(log_lines, f"STOP   {step_state['stop_reason']}", "stop")
+            if step_state["stop_reason"]:
+                append_log(log_lines, f"STOP   {step_state['stop_reason']}", "stop")
 
-        log_box.markdown(f'<div class="cia-log">{"<br>".join(log_lines)}</div>', unsafe_allow_html=True)
+            log_box.markdown(f'<div class="cia-log">{"<br>".join(log_lines)}</div>', unsafe_allow_html=True)
 
-        live_status = {e["field"]: "confirmed" for e in step_state["scratchpad"]}
-        status_box.markdown(render_status_card(live_status), unsafe_allow_html=True)
+            live_status = {e["field"]: "confirmed" for e in step_state["scratchpad"]}
+            status_box.markdown(render_status_card(live_status), unsafe_allow_html=True)
+    except Exception as e:
+        run_failed = True
+        st.error(f"The research run hit an unexpected error and could not finish: {e}")
 
-    if final_state:
+    if final_state and not run_failed:
         save_results(entity, final_state)
         status_box.markdown(render_status_card(final_state["field_status"]), unsafe_allow_html=True)
 
@@ -330,6 +312,6 @@ if run_clicked and entity:
         st.download_button(
             "Download brief (.md)",
             data=full_markdown,
-            file_name=f"{entity.strip().lower().replace(' ', '_')}_brief.md",
+            file_name=f"{entity.lower().replace(' ', '_')}_brief.md",
             mime="text/markdown",
         )
