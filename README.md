@@ -7,16 +7,18 @@ Built as a portfolio project on entirely free-tier infrastructure: no paid APIs,
 ## Preview
 
 <p align="center">
-  <img src="docs/screenshots/ui-architecture.png" width="720" alt="Streamlit UI showing the entity input and a live architecture diagram of the Planner, Executor, Critic, and Synthesizer pipeline">
+  <img src="assets/main_ui.png" width="720" alt="Streamlit UI showing the entity input and a live architecture diagram of the Planner, Executor, Critic, and Synthesizer pipeline">
   <br>
-  <sub><em>Landing view, entity input, and the pipeline's own architecture rendered inline.</em></sub>
+  <sub>Landing view, entity input, and the pipeline's own architecture rendered inline.</sub>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/ui-live-run.png" width="720" alt="Live research log streaming node-by-node progress next to a dossier status panel showing all five fields confirmed">
+  <img src="assets/research_log_and_dossier.png" width="720" alt="Live research log streaming node-by-node progress next to a dossier status panel showing all five fields confirmed">
   <br>
-  <sub><em>A run in progress, the research log streams node-by-node on the left (including a live Critic replan cycle), while the dossier status panel on the right confirms each of the 5 required fields as they're sourced.</em></sub>
+  <sub>A run in progress, the research log streams node-by-node on the left (including a live Critic replan cycle), while the dossier status panel on the right confirms each of the 5 required fields as they're sourced.</sub>
 </p>
+
+> Additional screenshots regarding other aspects are in [`assets/`](assets/).
 
 ## What this is
 
