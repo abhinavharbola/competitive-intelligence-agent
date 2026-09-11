@@ -72,10 +72,11 @@ def summarize(results: list[dict]) -> dict:
 
 
 def main():
-    if not config.NIM_JUDGE_API_KEY:
+    if not config.GROQ_JUDGE_API_KEY:
         raise SystemExit(
-            "NIM_JUDGE_API_KEY is not set. The ablation judge needs its own NIM account, "
-            "kept separate from the Planner's account, set it in .env before running this."
+            "GROQ_JUDGE_API_KEY is not set. The ablation judge is a separate Groq use case "
+            "from the Executor, set it in .env before running this (it can be the same key "
+            "as GROQ_EXECUTOR_API_KEY if you're not on the free tier, see README)."
         )
 
     parser = argparse.ArgumentParser()
@@ -87,7 +88,7 @@ def main():
     if unverified:
         print(f"warning: {len(unverified)} entries have unverified ground truth: {unverified}")
 
-    print(f"Running ablation on {len(benchmark)} entities (Critic and Synthesizer share Gemini's free-tier daily quota, currently 20 requests/day/model — reduce --limit if you hit RESOURCE_EXHAUSTED).")
+    print(f"Running ablation on {len(benchmark)} entities (Critic and Synthesizer run on separate Gemini models with separate free-tier daily quotas, but each still has a cap — reduce --limit if you hit RESOURCE_EXHAUSTED).")
 
     with_critic = run_condition(benchmark, critic_enabled=True)
     without_critic = run_condition(benchmark, critic_enabled=False)

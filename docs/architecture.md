@@ -11,9 +11,9 @@ flowchart TD
     seed --> planner
     note --> planner
 
-    planner[Planner\nNIM - Llama-3.1-8B] --> executor[Executor\nGroq - gpt-oss-120b]
-    executor --> critic[Critic\nGemini 3.5-flash]
-    critic -->|approved| synthesizer[Synthesizer\nGemini 3.5-flash]
+    planner[Planner\nNIM - Nemotron 3 Super 120B] --> executor[Executor\nGroq - gpt-oss-120b]
+    executor --> critic[Critic\nGemini 3.5 Flash-Lite]
+    critic -->|approved| synthesizer[Synthesizer\nGemini 3.5 Flash]
     critic -->|gaps, replan_count < 3| planner
     critic -->|gaps, replan_count = 3\nor stop_reason set| synthesizer
     synthesizer --> save[save to Neon]
@@ -80,20 +80,29 @@ the run itself started from a cache hit.
 
 ## Model families
 
-Four distinct families across the pipeline, on purpose:
+Three distinct families across the pipeline, chosen by matching each role's free-tier rate
+limits against its actual call volume per run (see the Models table in the README for the
+full rationale):
 
-- Llama (Planner, via NIM)
-- Gemini (Critic + Synthesizer)
-- DeepSeek (eval Judge, via a second NIM account)
-- gpt-oss (Executor, via Groq)
+- Nemotron (Planner, via NIM) — low call volume (1-4/run), NIM's free tier has no published
+  daily cap, so headroom was never the constraint; picked for being NVIDIA's own model built
+  for multi-step planning.
+- gpt-oss-120b (Executor, via Groq; and eval Judge, via a separate Groq use case) — Executor is
+  the highest-volume, most latency-sensitive role (up to 15 calls/run, streamed live to the UI),
+  so it gets Groq's LPU-speed inference on its own quota. The eval Judge reuses the same model
+  on a second Groq use case specifically so its quota doesn't compete with the Executor's during
+  an ablation run, not because gpt-oss-120b is uniquely suited to judging.
+- Gemini (Critic on `gemini-3.5-flash-lite`, Synthesizer on `gemini-3.5-flash`) — different
+  models on purpose: Gemini's free-tier quotas are per-model, not per-account, so splitting
+  these two across models means they draw from two separate daily buckets on the one Gemini
+  account instead of one shared, tighter bucket. Critic's job (JSON gap-classification) doesn't
+  need full Flash's quality; Synthesizer's job (the report the user reads) does, so it keeps the
+  pricier model.
 
-Groq hosts gpt-oss-120b for the Executor, on its own provider so Executor's per-call volume
-(up to 15 calls/run) doesn't share a rate-limit budget with anything else.
-
-Keeping Judge separate from Critic/Synthesizer's family matters specifically for the ablation
-study: the study compares "Critic loop on" vs "off," and a judge from the same family as the
-Critic would risk scoring outputs more favorably when they resemble its own family's reasoning
-style, biasing the comparison it's supposed to be neutral about.
+Keeping the Judge on a different model family than Critic/Synthesizer also matters for the
+ablation study specifically: the study compares "Critic loop on" vs "off," and a judge from the
+same family as the Critic would risk scoring outputs more favorably when they resemble its own
+family's reasoning style, biasing the comparison it's supposed to be neutral about.
 
 ## Safety boundary
 

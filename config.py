@@ -14,24 +14,25 @@ def _required(key: str) -> str:
 
 
 NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
-NIM_PLANNER_API_KEY = _required("NIM_PLANNER_API_KEY")
-# Only needed for eval/judge.py, kept optional so the API/UI don't require an
-# eval-only account just to import config.
-NIM_JUDGE_API_KEY = os.getenv("NIM_JUDGE_API_KEY", "")
+NIM_API_KEY = _required("NIM_API_KEY")
 
-GROQ_API_KEY = _required("GROQ_API_KEY")
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+GROQ_EXECUTOR_API_KEY = _required("GROQ_EXECUTOR_API_KEY")
+# Eval-only, so kept optional: the API/UI entrypoints never call the judge,
+# and shouldn't need this key just to start up. If you're on a paid Groq
+# plan, point this at the same key as GROQ_EXECUTOR_API_KEY, see README.
+GROQ_JUDGE_API_KEY = os.getenv("GROQ_JUDGE_API_KEY", "")
 
 GEMINI_API_KEY = _required("GEMINI_API_KEY")
 TAVILY_API_KEY = _required("TAVILY_API_KEY")
 NEON_DSN = os.getenv("NEON_DSN", "")
 LOGFIRE_TOKEN = os.getenv("LOGFIRE_TOKEN", "")
 
-PLANNER_MODEL = "meta/llama-3.1-8b-instruct"
+PLANNER_MODEL = "nvidia/nemotron-3-super-120b-a12b"
 EXECUTOR_MODEL = "openai/gpt-oss-120b"
-CRITIC_MODEL = "gemini-3.5-flash"
+CRITIC_MODEL = "gemini-3.5-flash-lite"
 SYNTHESIZER_MODEL = "gemini-3.5-flash"
-JUDGE_MODEL = "deepseek-ai/deepseek-v4-flash-0731"
+JUDGE_MODEL = "openai/gpt-oss-120b"
 
 REQUIRED_FIELDS = ["what_it_does", "funding_ownership", "recent_news", "competitors", "risks"]
 

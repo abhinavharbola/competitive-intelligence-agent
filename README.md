@@ -40,9 +40,9 @@ flowchart TD
     seed --> planner
     note --> planner
 
-    planner[Planner\nNIM - Llama-3.1-8B] --> executor[Executor\nGroq - gpt-oss-120b]
-    executor --> critic[Critic\nGemini 3.5-flash]
-    critic -->|approved| synthesizer[Synthesizer\nGemini 3.5-flash]
+    planner[Planner\nNIM - Nemotron 3 Super 120B] --> executor[Executor\nGroq - gpt-oss-120b]
+    executor --> critic[Critic\nGemini 3.5 Flash-Lite]
+    critic -->|approved| synthesizer[Synthesizer\nGemini 3.5 Flash]
     critic -->|gaps, replan_count < 3| planner
     critic -->|gaps, replan_count = 3\nor stop_reason set| synthesizer
     synthesizer --> save[save to Neon]
@@ -55,15 +55,17 @@ Full node-by-node data flow and state schema: [`docs/architecture.md`](docs/arch
 
 ## Models
 
-Four distinct model families, split across providers to keep rate-limit budgets separate and to keep the evaluation judge structurally independent of the components it's judging:
+Each role's model and provider were chosen by matching free-tier rate limits (RPM/TPM/RPD) against that role's actual call volume per run, not just picked for variety:
 
-| Role | Model | Provider | Notes |
-|---|---|---|---|
-| Planner | `meta/llama-3.1-8b-instruct` | NIM (account 1) | 70B model can be used but 8B is plenty for decomposing a request into 5 sub-questions. |
-| Executor | `openai/gpt-oss-120b` | Groq | NIM's own hosting of this model has known tool-calling, timeout failures, Groq's hosting doesn't. |
-| Critic | `gemini-3.5-flash` | Gemini | Isolated from Planner/Executor's family so it isn't grading output from a model in its own family. |
-| Synthesizer | `gemini-3.5-flash` | Gemini | Same model as Critic, but a fully separate prompt/call, Critic never touches report content. |
-| Eval judge | `deepseek-ai/deepseek-v4-flash-0731` | NIM (account 2) | Isolated from both Planner (Llama) and Critic/Synthesizer (Gemini) to eliminate biased judging. |
+| Role | Model | Provider | Calls/run | Why this model, this provider |
+|---|---|---|---|---|
+| Planner | `nvidia/nemotron-3-super-120b-a12b` | NIM | 1–4 | NVIDIA's own model, and its own description specifically targets multi-step task planning and complex multi-agent applications. Low call volume, so NIM's ~40 RPM free-tier ceiling (no published daily cap) is never a concern here. |
+| Executor | `openai/gpt-oss-120b` | Groq | up to 15 | This is the highest-volume, most latency-sensitive role (a sequential loop the UI streams live), so it gets Groq's LPU-speed inference. Groq's free tier is 30 RPM / 1,000 RPD per model — comfortably covers a single run, and is the real daily ceiling on total runs/day for the whole pipeline. |
+| Critic | `gemini-3.5-flash-lite` | Gemini | 1–4 | A lightweight JSON gap-classification task, doesn't need full Flash's reasoning quality. Flash-Lite's free tier gets meaningfully higher RPM/RPD than full Flash, and — because Gemini's free-tier quotas are per-model, not per-account — putting Critic on a different model than Synthesizer means they draw from two separate quota buckets on the same account instead of competing for one. |
+| Synthesizer | `gemini-3.5-flash` | Gemini | 1 | The one call per run that produces what the user actually reads, worth spending the pricier full-Flash quota on. Only called once per run regardless of replans, so its tighter RPD budget isn't a bottleneck. |
+| Eval judge | `openai/gpt-oss-120b` | Groq | eval-only | A separate Groq use case from the Executor so its quota doesn't compete with the Executor's during an ablation run, and so the judge isn't from the same model family as anything it's grading. If you're on a paid Groq plan rather than juggling free-tier accounts, one key covers both, see "Getting started" below. |
+
+Planner used to run on `meta/llama-3.1-8b-instruct`, but NIM deprecated the free-tier endpoint for the entire Llama family — every Llama size on NIM is now partner/download-only, not free. Nemotron 3 Super replaced it as the NVIDIA-native alternative.
 
 ## Guardrails
 
@@ -110,7 +112,7 @@ competitive-intelligence-agent/
 │
 ├── eval/
 │   ├── benchmark.json         # 15 companies + ground truth
-│   ├── judge.py               # NIM (acct 2, deepseek-ai/deepseek-v4-flash-0731) judge calls
+│   ├── judge.py               # Groq (openai/gpt-oss-120b) judge calls
 │   ├── run_ablation.py        # critic on/off runner
 │   └── results/
 │
@@ -128,9 +130,9 @@ competitive-intelligence-agent/
 ## Getting started
 
 1. **API keys**, you'll need:
-   - Two NVIDIA NIM accounts (Planner, and a separate one for the eval Judge): https://build.nvidia.com
-   - Groq: https://console.groq.com/keys
-   - Gemini: https://aistudio.google.com/apikey
+   - NVIDIA NIM (Planner): https://build.nvidia.com
+   - Groq, for two separate use cases — Executor and the eval Judge: https://console.groq.com/keys. On a paid Groq plan, one key covers both (`GROQ_EXECUTOR_API_KEY` and `GROQ_JUDGE_API_KEY` can just point at the same key). This repo's `.env.example` splits them because it's built against free-tier accounts, where keeping the Executor's per-run call volume off the Judge's quota (and vice versa) actually matters — see the Models table above.
+   - Gemini, for two more use cases — Critic and Synthesizer, on two different models: https://aistudio.google.com/apikey
    - Tavily (free tier): https://tavily.com
    - Neon (free tier): https://neon.tech
    - Logfire (optional, tracing just no-ops without it): https://logfire.pydantic.dev
@@ -163,4 +165,5 @@ The FastAPI endpoint returns the report, per-field status, replan/tool-call coun
 
 ## Known limitations
 
-- Gemini's free tier caps `gemini-3.5-flash` at 20 requests/day/project, and Critic + Synthesizer share that same quota bucket since they're the same model. A full 15-entity ablation run (30 total agent runs, each using at least 2 Gemini calls) will exceed this in one sitting, `python -m eval.run_ablation --limit N` runs a smaller slice, or spread runs across days. When the quota is hit mid-run, the system degrades gracefully (Critic routes straight to Synthesizer, Synthesizer falls back to a scratchpad-only report) rather than crashing, verified against a real quota exhaustion, not just a mocked one.
+- Gemini's free tier enforces a daily request cap per model per project (check your live numbers in the AI Studio dashboard, Google doesn't publish a fixed figure and it varies by model and account history). Critic (`gemini-3.5-flash-lite`) and Synthesizer (`gemini-3.5-flash`) run on different models specifically so they draw from separate quota buckets instead of one shared cap, but each bucket is still finite. A full 15-entity ablation run (30 total agent runs) can exceed either cap in one sitting; `python -m eval.run_ablation --limit N` runs a smaller slice, or spread runs across days. When a quota is hit mid-run, the system degrades gracefully (Critic routes straight to Synthesizer, Synthesizer falls back to a scratchpad-only report) rather than crashing, verified against a real quota exhaustion, not just a mocked one.
+- Groq's free tier caps `openai/gpt-oss-120b` at 1,000 requests/day per key. The Executor can use up to 15 of those per run (`MAX_TOOL_CALLS`), which puts a real ceiling of roughly 60–70 full research runs/day on the Executor's key — the tightest constraint in the whole pipeline. Fine for demo/portfolio-scale traffic; worth knowing before assuming the app can take heavier load unmodified.
