@@ -9,6 +9,18 @@ import config
 BENCHMARK_PATH = Path(__file__).parent / "benchmark.json"
 RESULTS_DIR = Path(__file__).parent / "results"
 
+# Runs that ended because a provider/infra call failed outright, not because
+# the agent did a bad job researching. Averaging these in blends a broken
+# run's near-empty result into the same numbers meant to measure research
+# quality, so they're excluded from the summary's averages and reported
+# separately instead of silently dropped or silently blended in.
+INFRA_FAILURE_REASONS = {
+    "planner_unavailable",
+    "critic_unavailable",
+    "synthesizer_unavailable",
+    "ablation_run_failed",
+}
+
 
 def load_benchmark(limit: int | None = None) -> list[dict]:
     benchmark = json.loads(BENCHMARK_PATH.read_text())
@@ -37,7 +49,9 @@ def run_condition(benchmark: list[dict], critic_enabled: bool) -> list[dict]:
                 "entity": entity,
                 "critic_enabled": critic_enabled,
                 "groundedness": judge_result["groundedness"],
+                "groundedness_notes": judge_result["groundedness_notes"],
                 "completeness": judge_result["completeness"],
+                "completeness_notes": judge_result["completeness_notes"],
                 "tool_call_count": final_state["tool_call_count"],
                 "elapsed_seconds": elapsed,
                 "replan_count": final_state["replan_count"],
@@ -47,7 +61,8 @@ def run_condition(benchmark: list[dict], critic_enabled: bool) -> list[dict]:
             print(f"  [ablation] {entity} failed entirely, skipping: {e}", flush=True)
             results.append({
                 "entity": entity, "critic_enabled": critic_enabled,
-                "groundedness": None, "completeness": None,
+                "groundedness": None, "groundedness_notes": None,
+                "completeness": None, "completeness_notes": None,
                 "tool_call_count": None, "elapsed_seconds": None,
                 "replan_count": None, "stop_reason": "ablation_run_failed",
             })
@@ -60,14 +75,19 @@ def _avg(results: list[dict], key: str) -> float | None:
 
 
 def summarize(results: list[dict]) -> dict:
-    scored = [r for r in results if r["groundedness"] is not None]
+    usable = [r for r in results if r["stop_reason"] not in INFRA_FAILURE_REASONS]
+    excluded = [r for r in results if r["stop_reason"] in INFRA_FAILURE_REASONS]
+    scored = [r for r in usable if r["groundedness"] is not None]
     return {
-        "avg_groundedness": _avg(results, "groundedness"),
-        "avg_completeness": _avg(results, "completeness"),
-        "avg_tool_calls": _avg(results, "tool_call_count"),
-        "avg_elapsed_seconds": _avg(results, "elapsed_seconds"),
+        "avg_groundedness": _avg(usable, "groundedness"),
+        "avg_completeness": _avg(usable, "completeness"),
+        "avg_tool_calls": _avg(usable, "tool_call_count"),
+        "avg_elapsed_seconds": _avg(usable, "elapsed_seconds"),
         "scored_entities": len(scored),
         "total_entities": len(results),
+        "excluded_infra_failures": [
+            {"entity": r["entity"], "stop_reason": r["stop_reason"]} for r in excluded
+        ],
     }
 
 
@@ -88,7 +108,7 @@ def main():
     if unverified:
         print(f"warning: {len(unverified)} entries have unverified ground truth: {unverified}")
 
-    print(f"Running ablation on {len(benchmark)} entities (Critic and Synthesizer run on separate Gemini models with separate free-tier daily quotas, but each still has a cap — reduce --limit if you hit RESOURCE_EXHAUSTED).")
+    print(f"Running ablation on {len(benchmark)} entities (Critic and Synthesizer run on separate Gemini models with separate free-tier daily quotas, but each still has a cap, reduce --limit if you hit RESOURCE_EXHAUSTED).")
 
     with_critic = run_condition(benchmark, critic_enabled=True)
     without_critic = run_condition(benchmark, critic_enabled=False)
@@ -102,6 +122,10 @@ def main():
         if summary["with_critic"][k] is not None and summary["without_critic"][k] is not None else None
         for k in ("avg_groundedness", "avg_completeness", "avg_tool_calls", "avg_elapsed_seconds")
     }
+
+    all_excluded = summary["with_critic"]["excluded_infra_failures"] + summary["without_critic"]["excluded_infra_failures"]
+    if all_excluded:
+        print(f"warning: {len(all_excluded)} run(s) excluded from summary averages due to infra failure: {all_excluded}")
 
     RESULTS_DIR.mkdir(exist_ok=True)
     (RESULTS_DIR / "with_critic.json").write_text(json.dumps(with_critic, indent=2))
