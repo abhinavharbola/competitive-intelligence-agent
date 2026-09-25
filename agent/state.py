@@ -5,7 +5,7 @@ class PlanStep(TypedDict):
     sub_question: str
     field: str
     tool: Literal["search", "calculator"]
-    status: Literal["pending", "done", "blocked"]
+    status: Literal["pending", "done", "blocked", "failed"]
 
 
 class ScratchpadEntry(TypedDict):
@@ -24,12 +24,13 @@ class Critique(TypedDict):
 
 class ResearchState(TypedDict):
     entity: str
+    today: str
     plan: list[PlanStep]
     scratchpad: list[ScratchpadEntry]
     critique: Critique
     replan_count: int
     tool_call_count: int
-    tool_call_log: list[str]
+    tool_call_cache: dict[str, dict[str, str]]
     start_time: float
     report: str
     field_status: dict[str, str]

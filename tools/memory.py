@@ -10,6 +10,8 @@ LEGAL_SUFFIXES = {
     "inc", "corp", "ltd", "llc", "co", "plc", "gmbh",
 }
 
+_FUZZY_CANDIDATE_LIMIT = 2000
+
 
 def normalize_entity(name: str) -> str:
     cleaned = re.sub(r"[^\w\s]", "", name.lower()).strip()
@@ -33,7 +35,7 @@ def find_prior_research(entity_raw: str) -> dict | None:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT created_at, findings FROM research_runs
+                    SELECT created_at, findings, sources FROM research_runs
                     WHERE entity_normalized = %s
                     ORDER BY created_at DESC LIMIT 1
                     """,
@@ -41,11 +43,22 @@ def find_prior_research(entity_raw: str) -> dict | None:
                 )
                 row = cur.fetchone()
                 if row:
-                    created_at, findings = row
+                    created_at, findings, sources = row
                     age_days = (datetime.now(timezone.utc) - created_at).days
-                    return {"exact_match": True, "age_days": age_days, "findings": findings}
+                    return {
+                        "exact_match": True,
+                        "age_days": age_days,
+                        "findings": findings,
+                        "sources": sources or {},
+                    }
 
-                cur.execute("SELECT DISTINCT entity_normalized FROM research_runs")
+                cur.execute(
+                    """
+                    SELECT DISTINCT entity_normalized FROM research_runs
+                    ORDER BY entity_normalized LIMIT %s
+                    """,
+                    (_FUZZY_CANDIDATE_LIMIT,),
+                )
                 candidates = [r[0] for r in cur.fetchall()]
     except Exception as e:
         print(f"  [memory] lookup failed, continuing without cache: {e}", flush=True)
@@ -53,7 +66,7 @@ def find_prior_research(entity_raw: str) -> dict | None:
 
     best_score, best_candidate = 0, None
     for candidate in candidates:
-        score = fuzz.ratio(normalized, candidate)
+        score = fuzz.WRatio(normalized, candidate)
         if score > best_score:
             best_score, best_candidate = score, candidate
 

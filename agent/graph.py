@@ -1,4 +1,5 @@
 import time
+from datetime import datetime, timezone
 from langgraph.graph import StateGraph, END
 from agent.state import ResearchState, ScratchpadEntry
 from agent.planner import plan
@@ -45,12 +46,13 @@ def build_graph(critic_enabled: bool = True):
 def build_initial_state(entity: str) -> ResearchState:
     return {
         "entity": entity,
+        "today": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         "plan": [],
         "scratchpad": [],
         "critique": {"approved": False, "gaps": []},
         "replan_count": 0,
         "tool_call_count": 0,
-        "tool_call_log": [],
+        "tool_call_cache": {},
         "start_time": time.time(),
         "report": "",
         "field_status": {},
@@ -76,6 +78,8 @@ def seed_from_memory(state: ResearchState, entity: str) -> tuple[ResearchState, 
     for field, result in prior["findings"].items():
         if field == "recent_news":
             continue
+        prior_sources = prior["sources"].get(field, [])
+        provenance = "; ".join(prior_sources) if prior_sources else "unrecorded"
         state["scratchpad"].append(
             ScratchpadEntry(
                 sub_question=f"cached finding for {field}",
@@ -83,15 +87,23 @@ def seed_from_memory(state: ResearchState, entity: str) -> tuple[ResearchState, 
                 tool="memory",
                 args="",
                 result=result,
-                source=f"cache ({prior['age_days']}d old)",
+                source=f"cache, {prior['age_days']}d old, originally: {provenance}",
             )
         )
     return state, ""
 
 
 def save_results(entity: str, final_state: ResearchState) -> None:
-    findings = {e["field"]: e["result"] for e in final_state["scratchpad"]}
-    sources = {e["field"]: e["source"] for e in final_state["scratchpad"]}
+    findings: dict[str, str] = {}
+    sources: dict[str, list[str]] = {}
+    for field in config.REQUIRED_FIELDS:
+        if final_state["field_status"].get(field) != "confirmed":
+            continue
+        entries = [e for e in final_state["scratchpad"] if e["field"] == field]
+        if not entries:
+            continue
+        findings[field] = "\n\n".join(e["result"] for e in entries)
+        sources[field] = sorted({e["source"] for e in entries})
     save_research(entity, findings, sources)
 
 

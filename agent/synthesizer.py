@@ -4,6 +4,9 @@ import config
 
 SYSTEM = """You are the Synthesizer for a Competitive Intelligence Agent.
 Produce the final brief using ONLY the scratchpad content provided. Never introduce claims not present in the scratchpad.
+You are given today's date. Use it to judge what genuinely counts as recent news and to phrase
+relative time correctly ("last month", "in the past year"), never assume your own training
+cutoff is the current date.
 Do not include a top-level title or heading naming the entity itself — start directly with the first field section, the app renders its own title.
 Cover exactly these fields, in this order, each as a level-2 markdown heading with this exact wording:
 ## What It Does
@@ -17,6 +20,7 @@ After the 5 field sections, add one more section:
 ## References
 List every citation number used, one per line, in this exact format: [n] Source Title — URL
 Use the title and URL exactly as they appear in the scratchpad's search results. For a calculator-derived figure, write: [n] Calculated from scratchpad figures
+For a finding whose source starts with "cache,", write: [n] Cached finding from a prior run (not re-sourced this run)
 Respond as JSON: {"report_markdown": str, "field_status": {"what_it_does": "confirmed"|"insufficient information", "funding_ownership": "confirmed"|"insufficient information", "recent_news": "confirmed"|"insufficient information", "competitors": "confirmed"|"insufficient information", "risks": "confirmed"|"insufficient information"}}"""
 
 
@@ -24,7 +28,7 @@ def synthesize(state: ResearchState) -> ResearchState:
     scratchpad_full = "\n\n".join(
         f"field={e['field']}\nsource={e['source']}\n{e['result']}" for e in state["scratchpad"]
     )
-    user = f"Entity: {state['entity']}\nScratchpad:\n{scratchpad_full or 'empty'}"
+    user = f"Entity: {state['entity']}\nToday's date: {state['today']}\nScratchpad:\n{scratchpad_full or 'empty'}"
 
     try:
         result = llm.call_gemini(config.SYNTHESIZER_MODEL, SYSTEM, user)

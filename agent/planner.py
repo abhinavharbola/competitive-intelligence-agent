@@ -7,6 +7,9 @@ Given a company/product name and, optionally, gaps flagged by the Critic, produc
 The plan must cover these required fields: what_it_does, funding_ownership, recent_news, competitors, risks.
 Each sub_question maps to exactly one field and one tool ("search" or "calculator").
 Only use "calculator" for numeric verification (e.g. growth rate math), never for lookups.
+You are given today's date. Use it to phrase recent_news sub-questions concretely (e.g. an actual
+month/year or "in the last 30 days") rather than a vague "recent", and never assume your own
+training cutoff is the current date.
 Respond as JSON: {"steps": [{"sub_question": str, "field": str, "tool": "search"|"calculator"}]}"""
 
 
@@ -19,7 +22,7 @@ def plan(state: ResearchState) -> ResearchState:
     gaps = state["critique"]["gaps"] if state.get("critique") else []
     prior = "\n".join(f"- {e['field']}: {e['result'][:200]}" for e in state.get("scratchpad", []))
 
-    user = f"Entity: {state['entity']}\n"
+    user = f"Entity: {state['entity']}\nToday's date: {state['today']}\n"
     if gaps:
         user += f"Critic flagged these gaps, focus the plan on closing them: {gaps}\n"
     if prior:

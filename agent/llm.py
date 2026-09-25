@@ -9,17 +9,24 @@ _LLM_TIMEOUT_SECONDS = 60
 _RETRY_ATTEMPTS = 3
 _RETRY_BASE_DELAY = 2
 
-# max_retries=0: the OpenAI-compatible clients should not retry on their own,
-# all retry logic lives in _with_retries below. Two independent retry layers
-# meant a single stuck call could silently retry up to 3 x 2 = 6 times before
-# raising, which made the wall-clock guardrail unreliable.
 _nim = OpenAI(api_key=config.NIM_API_KEY, base_url=config.NIM_BASE_URL, timeout=_LLM_TIMEOUT_SECONDS, max_retries=0)
 _groq_executor = OpenAI(api_key=config.GROQ_EXECUTOR_API_KEY, base_url=config.GROQ_BASE_URL, timeout=_LLM_TIMEOUT_SECONDS, max_retries=0)
-# GROQ_JUDGE_API_KEY is optional (eval-only), an empty string would make the
-# OpenAI client reject construction outright, so fall back to a placeholder;
-# call_judge() below is the actual gate that refuses to use it when unset.
 _groq_judge = OpenAI(api_key=config.GROQ_JUDGE_API_KEY or "unset", base_url=config.GROQ_BASE_URL, timeout=_LLM_TIMEOUT_SECONDS, max_retries=0)
 _gemini = genai.Client(api_key=config.GEMINI_API_KEY)
+
+_NON_RETRYABLE_MARKERS = (
+    "invalid_api_key", "invalid api key", "incorrect api key",
+    "unauthorized", "permission_denied", "permission denied",
+    "authentication",
+)
+
+
+def _is_retryable(e: Exception) -> bool:
+    status = getattr(e, "status_code", None)
+    if status in (401, 403):
+        return False
+    text = str(e).lower()
+    return not any(marker in text for marker in _NON_RETRYABLE_MARKERS)
 
 
 def _with_retries(fn):
@@ -29,6 +36,8 @@ def _with_retries(fn):
             return fn()
         except Exception as e:
             last_error = e
+            if not _is_retryable(e):
+                raise
             if attempt < _RETRY_ATTEMPTS:
                 delay = _RETRY_BASE_DELAY * (2 ** (attempt - 1))
                 print(f"  [llm] attempt {attempt} failed ({e}), retrying in {delay}s...", flush=True)
