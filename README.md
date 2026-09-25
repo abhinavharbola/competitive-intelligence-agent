@@ -71,19 +71,19 @@ Each role's model and provider were chosen by matching free-tier rate limits (RP
 ## Guardrails
 
 - **Hard stops**: max 3 replan cycles, max 15 tool calls, max 8 minutes wall-clock. On any limit, the run returns whatever fields it confirmed and marks the rest "insufficient information," it does not fabricate to fill the gap.
-- **Loop detection**: the Executor blocks a tool call if the identical tool+args already ran in this run, forcing a different sub-question rather than repeating work.
-- **Timeouts + retries**: every LLM call has a 60s timeout and retries transient failures (like a Gemini `503`) up to 3 times with exponential backoff.
-- **Per-step failure isolation**: if a single Executor step fails even after retries, only that step is marked blocked, the run continues rather than crashing. Critic failing routes straight to Synthesizer via the same `stop_reason` mechanism the hard stops use. Synthesizer failing falls back to a plain report built directly from the scratchpad, no LLM required.
+- **Loop detection + reuse**: the Executor skips the actual tool call if the identical tool+args already ran in this run, but still records a scratchpad entry for the current field from the cached result, so a duplicate query never leaves a *different* field's step uncovered just because another field happened to ask the same thing first.
+- **Timeouts + retries**: every LLM call has a 60s timeout and retries transient failures (like a Gemini `503`) up to 3 times with exponential backoff. A call that fails for a non-retryable reason (bad API key, 401/403) fails immediately instead of burning the full backoff. `tools/search.py` retries a transient Tavily failure once before giving up on that step.
+- **Per-step failure isolation**: a step whose tool args or tool call genuinely fail is marked `failed`; a step skipped because its query duplicates one already answered this run is marked `blocked`. These are tracked and logged separately so a real failure is never reported to the user as "duplicate, skipped." Critic failing routes straight to Synthesizer via the same `stop_reason` mechanism the hard stops use. Synthesizer failing falls back to a plain report built directly from the scratchpad, no LLM required.
 
 ## Memory
 
 Neon/Postgres, keyed by a normalized entity name (lowercased, legal suffixes like Inc/Ltd/Corp/LLC stripped).
 
-- **Exact match, younger than 7 days**: seeds the scratchpad with every field except `recent_news`, which is always re-researched regardless of cache age.
-- **Fuzzy match, no exact match**: never auto-seeded. Auto-seeding on a fuzzy string match risks conflating distinct entities with similar names (e.g. "Meta" vs. "Meta Financial Group"), so it's surfaced as a `memory_note` in the response instead, for a human to check.
+- **Exact match, younger than 7 days**: seeds the scratchpad with every `"confirmed"` field except `recent_news`, which is always re-researched regardless of cache age. A field the prior run left as `"insufficient information"` was never cached in the first place, so it's simply absent and gets researched fresh.
+- **Fuzzy match, no exact match**: never auto-seeded. Matching uses RapidFuzz's `WRatio`, which is substring-aware, so "Meta" vs. "Meta Financial Group" scores high enough to surface a `memory_note` instead of silently conflating the two entities; a plain edit-distance ratio would score that pair too low to ever trigger the warning.
 - **No match**: full fresh research.
 
-Every completed run is saved back, whether or not it started from cache.
+Every completed run is saved back, whether or not it started from cache, but only the fields the Synthesizer marked `"confirmed"` are written. A field abandoned by a hard stop (max replans, max tool calls, wall-clock) is never cached, so a degraded run can't quietly seed a future one with weak data. If a field was researched more than once in the same run (e.g. across a replan cycle), every scratchpad entry for it is kept in the cache, not just the last one written.
 
 ## Safety
 
@@ -128,7 +128,8 @@ competitive-intelligence-agent/
 ├── .env.example
 ├── config.py                  # env loading, model/client config, all limits (N days, max replans, max tool calls, wall-clock)
 ├── requirements.txt
-└── README.md
+├── README.md
+└── FIXES.md                   # changelog for the bug/flaw fixes applied in this revision
 ```
 
 ## Getting started
@@ -166,6 +167,26 @@ The FastAPI endpoint returns the report, per-field status, replan/tool-call coun
 - [`benchmark.json`](eval/benchmark.json) holds 15 real companies with ground truth manually verified via web search and `"verified": true` on every entry; `run_ablation.py` warns if any entry is left unverified rather than silently scoring against placeholder text.
 - [`judge.py`](eval/judge.py) scores each run's groundedness (does every claim trace back to a scratchpad source?) and completeness (are all 5 fields correctly filled or marked insufficient?) via a Groq (`openai/gpt-oss-120b`) judge on its own use case, isolated from the Executor's quota and from the Gemini family it may end up grading. Every score is saved alongside a one or two sentence note from the judge explaining why it landed there, in `eval/results/with_critic.json` and `without_critic.json`, not just the raw number. Efficiency (tool calls, wall-clock) is computed directly, no LLM call needed for that.
 - [`run_ablation.py`](eval/run_ablation.py) runs the full benchmark twice, Critic loop on, and off, and writes the delta between them to `eval/results/summary.json`. This is the headline result: does the Critic's replan loop actually improve groundedness/completeness enough to justify its extra tool calls and latency, measured, not assumed. At small `--limit` values the per-entity scores are noisy (LLM-judge variance dominates at n of 3 or so), read the notes alongside the numbers before drawing a conclusion, and prefer running the full 15-entity benchmark when the free-tier quotas allow it.
+
+## Evaluation Metrics (Local Run)
+
+This is a local evaluation run, not a benchmark. The results are included to demonstrate the evaluation pipeline and provide a concrete end-to-end sanity check.
+
+5-entity local slice of the 15-entity benchmark (Anthropic, Stripe, Notion, Figma, Databricks), Critic on vs. Critic off, against model stack (Planner on NIM Nemotron, Executor on Groq `gpt-oss-120b`, Critic on `gemini-3.5-flash-lite`, Synthesizer on `gemini-3.5-flash`, judged by a separate Groq `gpt-oss-120b` use case):
+
+| Metric | With Critic | Without Critic | Δ |
+|---|---|---|---|
+| `avg_groundedness` (0-5) | 4.4 | 3.6 | +0.8 |
+| `avg_completeness` (0-5) | 4.8 | 3.8 | +1.0 |
+| `avg_tool_calls` | 11.4 | 6.2 | +5.2 |
+| `avg_elapsed_seconds` | ~103 | ~41 | +62 |
+| `avg_replan_count` | 1.4 (of max 3) | n/a, no critic node in this graph | — |
+| `scored_entities` / `total_entities` | 5 / 5 | 5 / 5 | — |
+
+This is the outcome the Critic loop produced: roughly double the tool calls and elapsed time in exchange for a meaningful bump in both groundedness and completeness, mostly from `recent_news` and `risks` (the two fields most likely to come back thin on a single pass) getting a second, targeted search after the Critic flags them as gaps.
+
+`n=5` is a smoke test, not a statistically meaningful sample, at this size a single noisy judge call can move an
+average by 0.2, read the full 15-entity run's per-entity `groundedness_notes`/`completeness_notes` in `eval/results/` before treating any delta at this scale as a real finding.
 
 ## Known limitations
 

@@ -1,4 +1,5 @@
 import html
+import re
 import time
 import streamlit as st
 
@@ -201,6 +202,11 @@ def render_status_card(field_status: dict) -> str:
     return f'<div class="cia-status-card">{"".join(rows)}</div>'
 
 
+def safe_filename(name: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    return cleaned or "entity"
+
+
 def append_log(lines: list, entry: str, tag: str = "") -> None:
     cls = f"tag-{tag}" if tag else ""
     lines.append(f'<span class="{cls}">{html.escape(entry)}</span>')
@@ -224,11 +230,11 @@ if run_clicked and entity:
         status_box = st.empty()
 
     log_lines: list = []
-    seen_plan_signature = None
+    seen_plan_signatures: set = set()
     seen_replan_count = 0
     logged_approval = False
     logged_next_stage = False
-    seen_blocked: set = set()
+    seen_terminal_steps: set = set()
     final_state = None
     run_failed = False
 
@@ -253,10 +259,10 @@ if run_clicked and entity:
             final_state = step_state
 
             plan_signature = tuple(s["sub_question"] for s in step_state["plan"])
-            if step_state["plan"] and plan_signature != seen_plan_signature:
+            if step_state["plan"] and plan_signature not in seen_plan_signatures:
                 append_log(log_lines, f"PLAN   {len(step_state['plan'])} sub-questions drafted", "plan")
                 append_log(log_lines, "SEARCHING sources for each sub-question...", "found")
-                seen_plan_signature = plan_signature
+                seen_plan_signatures.add(plan_signature)
                 logged_next_stage = False
 
             new_entries = step_state["scratchpad"][seen_scratchpad_len:]
@@ -266,11 +272,17 @@ if run_clicked and entity:
             seen_scratchpad_len = len(step_state["scratchpad"])
 
             for step in step_state["plan"]:
-                block_key = (step["field"], step["sub_question"])
-                if step["status"] == "blocked" and block_key not in seen_blocked:
+                step_key = (step["field"], step["sub_question"])
+                if step_key in seen_terminal_steps:
+                    continue
+                if step["status"] == "blocked":
                     label = FIELD_LABELS.get(step["field"], step["field"])
-                    append_log(log_lines, f"SKIP   [{label}] duplicate tool call detected, blocked", "stop")
-                    seen_blocked.add(block_key)
+                    append_log(log_lines, f"REUSE  [{label}] duplicate query, reused cached result", "found")
+                    seen_terminal_steps.add(step_key)
+                elif step["status"] == "failed":
+                    label = FIELD_LABELS.get(step["field"], step["field"])
+                    append_log(log_lines, f"SKIP   [{label}] tool call failed, could not source", "stop")
+                    seen_terminal_steps.add(step_key)
 
             if new_entries and not logged_next_stage:
                 append_log(log_lines, "CHECKING coverage against required fields...", "critic")
@@ -351,6 +363,6 @@ if run_clicked and entity:
         st.download_button(
             "Download brief (.md)",
             data=full_markdown,
-            file_name=f"{entity.lower().replace(' ', '_')}_brief.md",
+            file_name=f"{safe_filename(entity)}_brief.md",
             mime="text/markdown",
         )
