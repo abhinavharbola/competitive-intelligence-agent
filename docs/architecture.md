@@ -36,7 +36,7 @@ All nodes read and write a single `ResearchState` dict, passed through the LangG
 | `critique` | critic | router |
 | `replan_count` | critic | router |
 | `tool_call_count`, `tool_call_cache` | executor | executor (loop detection + reuse), router |
-| `stop_reason` | executor, router | router, caller |
+| `stop_reason` | planner, executor, critic, synthesizer | router, caller |
 | `report`, `field_status` | synthesizer | caller |
 | `memory_note` | memory seed step | caller |
 
@@ -46,7 +46,7 @@ node) a structural graph change rather than a conditional inside a monolithic fu
 
 ## Data flow per node
 
-**Memory lookup** (`agent/graph.py:_seed_from_memory`, runs before the graph)
+**Memory lookup** (`agent/graph.py:seed_from_memory`, runs before the graph)
 Normalizes the entity name, checks Neon for an exact match. Fresh exact match seeds the
 scratchpad for every field except `recent_news`. Fuzzy match never seeds — it only sets
 `memory_note` so the caller sees "possible match, not used" instead of silently getting the wrong
@@ -77,20 +77,24 @@ Synthesizer doesn't have). Returns `{approved, gaps}`; any gap name outside the 
 fields is dropped and logged rather than passed on to the Planner. If, after dropping unknown
 names, `gaps` is empty, the run is treated as approved regardless of what the model's raw
 `approved` flag said, since empty gaps is the actual approval condition. Every real rejection
-increments `replan_count`.
+increments `replan_count`. When `replan_count` reaches `MAX_REPLAN_CYCLES` on a rejection, the
+Critic itself sets `stop_reason` to `max_replans`, because node return values are the only state
+changes LangGraph keeps.
 
 **Router** (`agent/graph.py:route_after_critic`)
-`approved` -> synthesizer. Gaps and `replan_count < 3` and no `stop_reason` -> back to planner.
-Gaps but replan budget exhausted, or executor already set `stop_reason` -> synthesizer anyway,
+A pure function of state, it never writes to it. `approved` -> synthesizer. Gaps and `replan_count < 3` and no `stop_reason` -> back to planner.
+Gaps but replan budget exhausted, or any node already set `stop_reason` -> synthesizer anyway,
 so the run always terminates with whatever was confirmed rather than looping or crashing.
 
 **Synthesizer** (`agent/synthesizer.py`)
 Builds the final report from `scratchpad` only — explicitly instructed not to introduce claims
 absent from it. Unfilled fields get `"insufficient information"` in `field_status` rather than a
-guess.
+guess. The fallback report used when the Synthesizer call fails ignores scratchpad entries whose
+search returned `no results`, so an empty search never marks a field confirmed.
 
 **Save** (`agent/graph.py:run`, after the graph completes)
-Only fields whose final `field_status` is `"confirmed"` are written back to `research_runs` in
+Only fields whose final `field_status` is `"confirmed"` and that have at least one non-empty
+scratchpad entry are written back to `research_runs` in
 Neon; a field left as `"insufficient information"` (including one abandoned by a hard stop) is
 never cached, so a degraded run can't poison a future run's seed. All scratchpad entries for a
 confirmed field are concatenated (not just the last one), so a field the Executor researched via

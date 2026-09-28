@@ -1,6 +1,7 @@
 from agent import llm, schemas
 from agent.state import ResearchState
 import config
+from tools.results import is_empty_result
 
 SYSTEM = """You are the Synthesizer for a Competitive Intelligence Agent.
 Produce the final brief using ONLY the scratchpad content provided. Never introduce claims not present in the scratchpad.
@@ -49,6 +50,8 @@ def synthesize(state: ResearchState) -> ResearchState:
 def _fallback_report(state: ResearchState) -> tuple[str, dict[str, str]]:
     by_field: dict[str, list] = {}
     for entry in state["scratchpad"]:
+        if is_empty_result(entry["result"]):
+            continue
         by_field.setdefault(entry["field"], []).append(entry)
 
     lines = [f"# {state['entity']} (auto-generated, synthesizer unavailable)", ""]

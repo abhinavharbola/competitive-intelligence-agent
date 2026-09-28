@@ -290,7 +290,10 @@ if run_clicked and entity:
 
             if step_state["replan_count"] != seen_replan_count:
                 gaps = ", ".join(step_state["critique"]["gaps"])
-                append_log(log_lines, f"CRITIC gaps in [{gaps}] -> replanning (cycle {step_state['replan_count']}/{config.MAX_REPLAN_CYCLES})", "critic")
+                if step_state["stop_reason"] == "max_replans":
+                    append_log(log_lines, f"CRITIC gaps in [{gaps}] -> replan budget exhausted ({step_state['replan_count']}/{config.MAX_REPLAN_CYCLES})", "critic")
+                else:
+                    append_log(log_lines, f"CRITIC gaps in [{gaps}] -> replanning (cycle {step_state['replan_count']}/{config.MAX_REPLAN_CYCLES})", "critic")
                 seen_replan_count = step_state["replan_count"]
                 logged_approval = False
                 logged_next_stage = False

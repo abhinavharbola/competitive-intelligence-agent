@@ -83,6 +83,7 @@ def summarize(results: list[dict]) -> dict:
         "avg_completeness": _avg(usable, "completeness"),
         "avg_tool_calls": _avg(usable, "tool_call_count"),
         "avg_elapsed_seconds": _avg(usable, "elapsed_seconds"),
+        "avg_replan_count": _avg(usable, "replan_count"),
         "scored_entities": len(scored),
         "total_entities": len(results),
         "excluded_infra_failures": [

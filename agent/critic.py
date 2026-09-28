@@ -41,9 +41,11 @@ def critique(state: ResearchState) -> ResearchState:
     if dropped:
         print(f"  [critic] dropping unrecognized gap field(s) {dropped}", flush=True)
 
-    approved = parsed.approved or not gaps
+    approved = not gaps
 
     state["critique"] = {"approved": approved, "gaps": gaps}
     if not approved:
         state["replan_count"] += 1
+        if state["replan_count"] >= config.MAX_REPLAN_CYCLES:
+            state["stop_reason"] = "max_replans"
     return state

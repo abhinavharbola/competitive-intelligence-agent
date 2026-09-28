@@ -8,6 +8,7 @@ from agent.critic import critique
 from agent.synthesizer import synthesize
 from agent.tracing import traced_node
 from tools.memory import find_prior_research, save_research
+from tools.results import is_empty_result
 import config
 
 
@@ -17,7 +18,6 @@ def route_after_critic(state: ResearchState) -> str:
     if state.get("stop_reason"):
         return "synthesizer"
     if state["replan_count"] >= config.MAX_REPLAN_CYCLES:
-        state["stop_reason"] = "max_replans"
         return "synthesizer"
     return "planner"
 
@@ -99,7 +99,10 @@ def save_results(entity: str, final_state: ResearchState) -> None:
     for field in config.REQUIRED_FIELDS:
         if final_state["field_status"].get(field) != "confirmed":
             continue
-        entries = [e for e in final_state["scratchpad"] if e["field"] == field]
+        entries = [
+            e for e in final_state["scratchpad"]
+            if e["field"] == field and not is_empty_result(e["result"])
+        ]
         if not entries:
             continue
         findings[field] = "\n\n".join(e["result"] for e in entries)

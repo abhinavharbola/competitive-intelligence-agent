@@ -1,5 +1,5 @@
-import time
 from agent import llm, schemas
+from agent.guardrails import wall_clock_exceeded
 from agent.state import ResearchState, ScratchpadEntry
 from tools.search import web_search
 from tools.calculator import calculate
@@ -24,7 +24,7 @@ def execute(state: ResearchState) -> ResearchState:
         if state["tool_call_count"] >= config.MAX_TOOL_CALLS:
             state["stop_reason"] = "max_tool_calls"
             break
-        if time.time() - state["start_time"] > config.MAX_WALL_CLOCK_SECONDS:
+        if wall_clock_exceeded(state):
             state["stop_reason"] = "wall_clock"
             break
 
