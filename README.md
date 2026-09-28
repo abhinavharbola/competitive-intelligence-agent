@@ -107,6 +107,7 @@ competitive-intelligence-agent/
 │   ├── __init__.py
 │   ├── search.py              # Tavily wrapper, injection-delimited output
 │   ├── calculator.py          # simpleeval wrapper
+│   ├── results.py             # untrusted-content wrapper + empty-result detection
 │   └── memory.py              # entity normalization + Neon read/write
 │
 ├── docs/architecture.md
@@ -121,6 +122,9 @@ competitive-intelligence-agent/
 │   ├── run_ablation.py        # critic on/off runner
 │   └── results/
 │
+├── tests/                     # offline pytest suite, all providers stubbed
+├── pytest.ini
+│
 ├── .streamlit/config.toml     # locked light theme
 ├── assets/
 │
@@ -128,8 +132,7 @@ competitive-intelligence-agent/
 ├── .env.example
 ├── config.py                  # env loading, model/client config, all limits (N days, max replans, max tool calls, wall-clock)
 ├── requirements.txt
-├── README.md
-└── FIXES.md                   # changelog for the bug/flaw fixes applied in this revision
+└── README.md
 ```
 
 ## Getting started
@@ -180,7 +183,7 @@ This is a local evaluation run, not a benchmark. The results are included to dem
 | `avg_completeness` (0-5) | 4.8 | 3.8 | +1.0 |
 | `avg_tool_calls` | 11.4 | 6.2 | +5.2 |
 | `avg_elapsed_seconds` | ~103 | ~41 | +62 |
-| `avg_replan_count` | 1.4 (of max 3) | n/a, no critic node in this graph | — |
+| `avg_replan_count` | 1.4 (of max 3) | 0, no critic node in this graph | n/a |
 | `scored_entities` / `total_entities` | 5 / 5 | 5 / 5 | — |
 
 This is the outcome the Critic loop produced: roughly double the tool calls and elapsed time in exchange for a meaningful bump in both groundedness and completeness, mostly from `recent_news` and `risks` (the two fields most likely to come back thin on a single pass) getting a second, targeted search after the Critic flags them as gaps.
@@ -193,3 +196,12 @@ average by 0.2, read the full 15-entity run's per-entity `groundedness_notes`/`c
 - Gemini's free tier enforces a daily request cap per model per project (check your live numbers in the AI Studio dashboard, Google doesn't publish a fixed figure and it varies by model and account history). Critic (`gemini-3.5-flash-lite`) and Synthesizer (`gemini-3.5-flash`) run on different models specifically so they draw from separate quota buckets instead of one shared cap, but each bucket is still finite.
 - Groq's free tier caps `openai/gpt-oss-120b` at 1,000 requests/day per key. The Executor can use up to 15 of those per run (`MAX_TOOL_CALLS`), which puts a real ceiling of roughly 60 to 70 full research runs/day on the Executor's key, the tightest constraint in the whole pipeline.
 - At small ablation sample sizes, the Critic's measured effect on groundedness/completeness is dominated by LLM-judge scoring variance, not the Critic itself.
+
+## Testing
+
+```
+pip install -r requirements.txt
+pytest
+```
+
+Tests run fully offline: `tests/conftest.py` injects fake API keys and every LLM, Tavily and Postgres call is stubbed. `tests/test_repo_consistency.py` also checks that file and function references in the docs resolve to real code.
