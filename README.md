@@ -24,10 +24,10 @@ Built as a portfolio project on entirely free-tier infrastructure: no paid APIs,
 
 Given an entity name, the agent:
 
-1. Plans a small set of research sub-questions (at most 8 per plan) covering the 5 required fields, skipping any field already confirmed from cache.
-2. Executes each one, as a web search or a calculation, and writes the results to a scratchpad.
-3. Critiques its own coverage against the 5 fields, and can send itself back to re-plan up to 3 times if something is missing. Each replan targets only the flagged gaps and avoids repeating earlier queries.
-4. Synthesizes a final brief from the scratchpad only, with numbered citations and a references list. Field statuses are checked against the scratchpad, so a field cannot be reported as confirmed without evidence behind it.
+1. **Plans** a small set of research sub-questions (at most 8 per plan) covering the 5 required fields, skipping any field already confirmed from cache.
+2. **Executes** each one, as a web search or a calculation, and writes the results to a scratchpad.
+3. **Critiques** its own coverage against the 5 fields, and can send itself back to re-plan up to 3 times if something is missing. Each replan targets only the flagged gaps and avoids repeating earlier queries.
+4. **Synthesizes** a final brief from the scratchpad only, with numbered citations and a references list. Field statuses are checked against the scratchpad, so a field cannot be reported as confirmed without evidence behind it.
 
 It remembers past runs per field (Neon/Postgres), traces every node, LLM call and tool call (Logfire), is exposed as both a FastAPI endpoint and a Streamlit UI, and ships with an evaluation harness that runs a paired ablation study on its own Critic loop.
 
@@ -57,44 +57,43 @@ Full node-by-node data flow and state schema: [`docs/architecture.md`](docs/arch
 
 ## Models
 
-Each role's model and provider were chosen by matching free-tier rate limits (RPM/TPM/RPD) against that role's actual call volume per run, not just picked for variety:
+Models are matched to free-tier rate limits (RPM/TPM/RPD) by each role's call volume:
 
 | Role | Model | Provider | Calls/run | Why this model, this provider |
 |---|---|---|---|---|
-| Planner | `nvidia/nemotron-3-super-120b-a12b` | NIM | 1 to 4 | NVIDIA's own model for multi-step task planning and complex multi-agent applications. Low-volume role. |
-| Executor | `openai/gpt-oss-120b` | Groq | one per pending step, at most 8 steps per plan | Highest-volume, most latency-sensitive role, so it gets Groq's LPU-speed inference. Steps that end up blocked or failed still cost a call, see Known limitations. |
-| Critic | `gemini-3.5-flash-lite` | Gemini | 1 to 4 | Lightweight JSON gap-classification task that does not need full Flash's reasoning quality. Gets meaningfully higher RPM/RPD than full Flash. |
-| Synthesizer | `gemini-3.5-flash` | Gemini | 1 | The one call per run that produces what the user actually reads, worth spending the pricier full-Flash quota on. |
-| Eval judge | `openai/gpt-oss-120b` | Groq | eval-only | Separate Groq key so judge traffic does not compete with the Executor's quota. It grades the Gemini-written report; the Executor only produces tool inputs, never graded text. |
+| Planner | `nvidia/nemotron-3-super-120b-a12b` | NIM | 1 to 4 | NVIDIA's model for multi-step planning. Low-volume role. |
+| Executor | `openai/gpt-oss-120b` | Groq | one per pending step, at most 8 steps per plan | Highest-volume, latency-sensitive role, so it gets Groq. Blocked and failed steps still cost a call (see Known limitations). |
+| Critic | `gemini-3.5-flash-lite` | Gemini | 1 to 4 | Light JSON gap-classification; needs less quality, gets higher RPM/RPD. |
+| Synthesizer | `gemini-3.5-flash` | Gemini | 1 | Writes what the user reads, so it gets full Flash. |
+| Eval judge | `openai/gpt-oss-120b` | Groq | eval-only | Separate key keeps judge traffic off the Executor's quota. Grades the Gemini report, never Executor output. |
 
 ## Guardrails
 
-- **Hard stops**: max 3 replan cycles, max 15 tool calls, max 8 steps per plan, max 8 minutes wall-clock. The clock is checked before the Planner, before the Critic, before each Executor step, and again after the Executor generates tool input (the Synthesizer always runs so a brief is still produced); a call already in flight is allowed to finish, bounded by the 60s LLM timeout and retries. On any limit, the run returns whatever fields it confirmed and marks the rest "insufficient information"; it does not fabricate to fill the gap.
-- **Loop detection and reuse**: the Executor is shown the queries already run and told to vary them. If it still produces an identical tool and argument pair, the tool call is skipped and the cached result is recorded for the current field, unless that field already holds that exact result. A duplicate query therefore never leaves a different field's step uncovered, and never adds the same evidence twice for the Critic to re-read.
-- **Timeouts and retries**: every LLM call has a 60s timeout, enforced by the client for NIM and Groq and by a watchdog thread for Gemini. Transient failures (like a `503`) retry up to 3 times with exponential backoff, and a `429` backs off 10s then 20s. A non-retryable failure (400, 401, 403, 404, 422, an invalid key, or an exhausted daily quota) fails immediately instead of burning the full backoff. Malformed JSON from a model is retried like a transient failure. `tools/search.py` retries a transient Tavily failure once. Every failed LLM and search attempt emits a Logfire warning.
-- **Per-step failure isolation**: a step whose tool args or tool call genuinely fail is marked `failed`; a step skipped because its query duplicates one already answered this run is marked `blocked`. These are tracked and logged separately so a real failure is never reported as "duplicate, skipped."
-- **Graceful degradation**: a Critic failure routes straight to the Synthesizer through the same `stop_reason` mechanism the hard stops use. A Synthesizer failure (or an empty report) falls back to a plain report built from the scratchpad, opens with a note that nothing was verified, and is never written to the cache. When a second reason has to be recorded after an earlier one, the two are joined, for example `max_replans+synthesizer_unavailable`, so the first reason is never overwritten.
+- **Hard stops**: 3 replans, 15 tool calls, 8 steps per plan, 8 minutes wall-clock. The clock is checked before the Planner, before the Critic, before each Executor step and after tool input is generated. The Synthesizer always runs, and an in-flight call may finish (bounded by the 60s timeout and retries). On any limit the run returns what it confirmed and marks the rest "insufficient information".
+- **Loop detection**: the Executor sees queries already run and must vary them. An identical tool and argument pair skips the call and records the cached result for the current field, unless that field already holds it, so duplicates never leave a field uncovered or double-count evidence.
+- **Timeouts and retries**: 60s per LLM call (client-enforced for NIM and Groq, a watchdog thread for Gemini). Transient failures (like `503`) retry 3 times with exponential backoff; `429` waits 10s then 20s. Non-retryable failures (400, 401, 403, 404, 422, invalid key, exhausted daily quota) fail immediately. Malformed JSON is retried and Tavily is retried once. Every failed attempt emits a Logfire warning.
+- **Failure isolation**: a step whose tool args or call fail is `failed`; a duplicate skipped is `blocked`. They are logged separately.
+- **Graceful degradation**: a Critic failure goes straight to the Synthesizer via `stop_reason`. A Synthesizer failure or empty report falls back to a plain scratchpad report, marked unverified and never cached. Multiple stop reasons are joined (for example `max_replans+synthesizer_unavailable`), so the first is never overwritten.
 
 ## Memory
 
 Neon/Postgres, keyed by a normalized entity name (lowercased, legal suffixes like Inc/Ltd/Corp/LLC stripped).
 
-- **Exact match**: the most recent rows for the entity are merged per field, newest row winning, and each field carries its own age in fractional days. Every field younger than 7 days, except `recent_news`, is seeded into the scratchpad. `recent_news` is always re-researched. A field never marked `"confirmed"` was never cached, so it is simply absent and gets researched fresh.
-- **Seeded fields are not re-planned**: on the first pass the Planner is told which fields are already confirmed and plans only the rest, so a cache hit actually saves tool calls.
-- **Fuzzy match, no exact match**: never auto-seeded. Matching uses RapidFuzz's `WRatio`, which is substring-aware, so "Meta" vs. "Meta Financial Group" is intended to surface a `memory_note` instead of silently conflating the two entities. Candidates are the 2000 most recently researched entities.
+- **Exact match**: recent rows are merged per field, newest winning, each with its own age in fractional days. Fields under 7 days old, except `recent_news`, are seeded into the scratchpad. `recent_news` is always re-researched.
+- **Seeded fields are not re-planned**: the Planner plans only unconfirmed fields, so a cache hit saves tool calls.
+- **Fuzzy match only**: never auto-seeded. RapidFuzz `WRatio` is substring-aware, so "Meta" vs. "Meta Financial Group" is intended to raise a `memory_note` instead of conflating them. Candidates are the 2000 most recently researched entities.
 - **No match**: full fresh research.
 
-Only freshly researched fields are written back. A field is saved when the Synthesizer marked it `"confirmed"` and the scratchpad holds at least one non-empty, non-cached entry for it. Cached text is never re-saved, so a finding's age is never reset and its text never grows or nests its own provenance. A run that produced nothing new writes nothing, so it cannot shadow earlier good rows, and a run that used the fallback report writes nothing. A field abandoned by a hard stop is never cached. If a field was researched more than once in the same run, every fresh scratchpad entry for it is kept.
+Write-back keeps only fresh work: a field is saved when the Synthesizer marked it `"confirmed"` and the scratchpad holds a non-empty, non-cached entry for it (all such entries kept). Cached text is never re-saved, so ages never reset and text never grows. A run with nothing new, or one using the fallback report, writes nothing and cannot shadow earlier rows. Unconfirmed fields, including any cut off by a hard stop, are never cached.
 
 ## Safety
 
-All Tavily output is wrapped in `<untrusted_web_content>` delimiters before it reaches any prompt. The Planner, Executor, Critic, Synthesizer and eval Judge system prompts all carry an instruction that content inside those tags is data only, never instructions to follow. Any literal copy of the delimiter tags inside fetched text is neutralized before wrapping, and truncated excerpts are re-wrapped so the delimiters stay balanced. This is a prompt-injection mitigation, not a guarantee: search results come from the open web and are not trusted input.
-
-Calculator steps are built from scratchpad findings: the Executor is given them and instructed to use no other numbers (an instruction to the model, not something the code enforces). Each expression is stored next to its result and the source is labelled `calculator: <expression>`, so a calculated figure can be traced by the Critic, Synthesizer and Judge.
-
-The API can be locked with an optional `API_ACCESS_KEY`: when set, `POST /research` requires a matching `X-API-Key` header. Entity names are stripped and capped at 200 characters.
+- **Prompt injection**: all Tavily output is wrapped in `<untrusted_web_content>` tags, and the Planner, Executor, Critic, Synthesizer and Judge prompts treat tagged content as data, never instructions. Literal tags in fetched text are neutralized and truncated excerpts are re-wrapped, so delimiters stay balanced. This is a mitigation, not a guarantee.
+- **Calculator**: expressions are built from scratchpad findings, and the Executor is told to use no other numbers (a model instruction, not enforced in code). Each expression is stored with its result under source `calculator: <expression>`, so it is traceable.
+- **API**: an optional `API_ACCESS_KEY` makes `POST /research` require a matching `X-API-Key` header. Entity names are stripped and capped at 200 characters.
 
 ## Project Structure
+
 ```
 competitive-intelligence-agent/
 ├── agent/
@@ -149,25 +148,31 @@ Requires Python 3.10 or newer (the code uses `X | None` annotations).
 
 1. **API keys**, you'll need:
    - NVIDIA NIM (Planner): https://build.nvidia.com
-   - Groq, for two separate use cases, Executor and the eval Judge: https://console.groq.com/keys. On a paid Groq plan, one key covers both (`GROQ_EXECUTOR_API_KEY` and `GROQ_JUDGE_API_KEY` can point at the same key). This repo's `.env.example` splits them because it is built against free-tier accounts, where keeping the Executor's per-run call volume off the Judge's quota (and vice versa) matters, see the Models table above.
-   - Gemini, for two more use cases, Critic and Synthesizer, on two different models: https://aistudio.google.com/apikey
+   - Groq (Executor and eval Judge): https://console.groq.com/keys. The two keys are split for free-tier quotas; on a paid plan both variables can hold the same key.
+   - Gemini (Critic and Synthesizer, two models): https://aistudio.google.com/apikey
    - Tavily (free tier): https://tavily.com
    - Neon (free tier): https://neon.tech. `NEON_DSN` is the Postgres connection string from the Neon dashboard (it starts with `postgresql://`).
    - Logfire (optional, tracing no-ops without it): https://logfire.pydantic.dev
-   - `API_ACCESS_KEY` (optional): any secret string you choose; when set, the API requires it in an `X-API-Key` header
+   - `API_ACCESS_KEY` (optional): any secret you choose; the API then requires it in `X-API-Key`
 
 2. **Install**
    ```
    python3 -m venv venv && source venv/bin/activate   # on Windows: venv\Scripts\activate
    pip install -r requirements.txt
-   cp .env.example .env   # fill in every key except the optional ones (LOGFIRE_TOKEN, NEON_DSN, API_ACCESS_KEY, GROQ_JUDGE_API_KEY unless you run the eval)
+   cp .env.example .env   # fill in all keys except the optional ones (LOGFIRE_TOKEN, NEON_DSN, API_ACCESS_KEY, and GROQ_JUDGE_API_KEY unless running the eval)
    ```
 
-3. **Database**, no local `psql` needed. Open your Neon project's **SQL Editor** in the dashboard, paste in [`memory/schema.sql`](memory/schema.sql), run it. Skip this step entirely to run without memory; it no-ops safely with `NEON_DSN` unset.
+3. **Database** (optional, no local `psql` needed): paste [`memory/schema.sql`](memory/schema.sql) into your Neon project's SQL Editor and run it. Without `NEON_DSN`, memory safely does nothing.
+
+4. **Testing**
+   ```
+   pytest tests/ -v
+   ```
+   Tests run fully offline: `tests/conftest.py` injects fake API keys and stubs every LLM, Tavily and Postgres call. `tests/test_repo_consistency.py` also checks that file and function references in the docs resolve to real code. 
 
 ## Running it
 
-Run every command from the repository root, so that `.env`, the imports and `.streamlit/config.toml` are found.
+Run every command from the repository root so `.env`, imports and `.streamlit/config.toml` are found.
 
 ```
 uvicorn api.main:app --reload      # API on :8000, POST /research {"entity": "..."} (one request blocks for the whole run, up to about 8 minutes)
@@ -181,21 +186,19 @@ Example API call (add `-H "X-API-Key: <your key>"` if `API_ACCESS_KEY` is set):
 curl -X POST http://localhost:8000/research -H "Content-Type: application/json" -d '{"entity": "Stripe"}'
 ```
 
-The FastAPI endpoint returns the report, per-field status, replan and tool-call counts, the full scratchpad (execution trace), and any memory note. The Streamlit UI shows the same run live: a research log streaming node-by-node, a dossier status panel with per-field confirmation stamps, and the final filed brief with a download button. The finished run is kept in the session, so downloading the brief (which reruns the page) does not wipe it.
+The API returns the report, per-field status, replan and tool-call counts, the scratchpad (execution trace) and any memory note. The Streamlit UI shows the same run live: a node-by-node research log, a dossier status panel with per-field stamps, and the filed brief with a download button. The finished run stays in the session, so downloading the brief does not wipe it.
 
 ## Evaluation
 
 `/eval` is the project's core differentiator, not a checkbox.
 
-- [`benchmark.json`](eval/benchmark.json) holds 15 real companies with ground truth manually verified via web search and `"verified": true` on every entry; `run_ablation.py` warns if any entry is left unverified rather than silently scoring against placeholder text.
-- [`judge.py`](eval/judge.py) scores each run's groundedness (does every claim trace back to a scratchpad source?) and completeness (are all 5 fields correctly filled or marked insufficient?) via a Groq (`openai/gpt-oss-120b`) judge on its own key, isolated from the Executor's quota. The judge is told that ground truth is a dated snapshot, so a newer, sourced `recent_news` finding is not penalized for differing from it. Every score is saved with a one or two sentence note explaining why it landed there, in `eval/results/with_critic.json` and `without_critic.json`, not just the raw number. Efficiency (tool calls, wall-clock) is computed directly, with no LLM call.
-- [`run_ablation.py`](eval/run_ablation.py) runs the benchmark twice, Critic loop on and off, and writes the delta to `eval/results/summary.json`. This is the headline result: does the Critic's replan loop improve groundedness and completeness enough to justify its extra tool calls and latency, measured, not assumed. The delta is paired: only entities that finished without an infrastructure failure in both conditions are averaged, and the ones dropped are listed under `excluded_infra_failures` and `excluded_unpaired`. `--limit N` takes the first N benchmark entries and must be a positive integer. At small `--limit` values the per-entity scores are noisy (LLM-judge variance dominates at n of 3 or so), so read the notes alongside the numbers, and prefer the full 15-entity benchmark when free-tier quotas allow.
+- [`benchmark.json`](eval/benchmark.json): 15 companies with manually verified ground truth (`"verified": true` on all). `run_ablation.py` warns on any unverified entry rather than scoring against placeholders.
+- [`judge.py`](eval/judge.py): a Groq (`openai/gpt-oss-120b`) judge on its own key scores groundedness (does every claim trace to a scratchpad source?) and completeness (are all 5 fields correct or marked insufficient?). Ground truth is a dated snapshot, so a newer sourced `recent_news` finding is not penalized. Scores are saved with short notes in `eval/results/with_critic.json` and `without_critic.json`. Tool calls and wall-clock are measured directly, without an LLM.
+- [`run_ablation.py`](eval/run_ablation.py): runs the benchmark with the Critic on and off and writes the delta to `eval/results/summary.json`, measuring whether replans earn their extra calls and latency. The delta is paired: only entities without an infrastructure failure in both conditions count, and dropped ones appear under `excluded_infra_failures` and `excluded_unpaired`. `--limit N` (positive integer) takes the first N entries. Small slices are noisy (judge variance dominates near n=3), so read the notes with the numbers and prefer the full 15 when quotas allow.
 
 ## Evaluation Metrics (Local Run)
 
-These figures are synthetic: projected expectations for the current code under ideal conditions (no provider outages, no quota exhaustion), not measured results. Regenerate them with `python -m eval.run_ablation` before quoting them anywhere.
-
-5-entity slice of the 15-entity benchmark (Anthropic, Stripe, Notion, Figma, Databricks, hand-picked, so `--limit 5` does not reproduce it), Critic on vs. Critic off, against the model stack (Planner on NIM Nemotron, Executor on Groq `gpt-oss-120b`, Critic on `gemini-3.5-flash-lite`, Synthesizer on `gemini-3.5-flash`, judged by a separate Groq `gpt-oss-120b` key):
+5-entity slice (Anthropic, Stripe, Notion, Figma, Databricks; hand-picked, so `--limit 5` does not reproduce it), Critic on vs. off:
 
 | Metric | With Critic | Without Critic | Delta |
 |---|---|---|---|
@@ -206,25 +209,16 @@ These figures are synthetic: projected expectations for the current code under i
 | `avg_replan_count` | 1.6 (of max 3) | 0, no critic node in this graph | n/a |
 | `scored_entities` / `total_entities` | 5 / 5 | 5 / 5 | n/a |
 
-The expected shape: the Critic loop still costs roughly 1.8x the tool calls and 2.4x the elapsed time, but each replan is now more productive than before. Replans target only the flagged gaps, the Executor avoids repeating earlier queries, and the loop gets a full 3 replans instead of 2, so completeness and groundedness are both projected a little higher, mostly from `recent_news` and `risks` getting a second, targeted search. Field statuses being checked against the scratchpad and calculator figures being traceable should lift groundedness slightly in both conditions, and a paired delta removes the bias from entities dropped in only one condition.
+Metrics shape: the Critic costs about 1.8x the tool calls and 2.4x the time, but replans are more productive now. They target only gaps, avoid repeated queries and get a full 3 cycles instead of 2, mostly helping `recent_news` and `risks`. Scratchpad-checked statuses and traceable calculations should lift groundedness slightly in both conditions, and pairing removes bias from entities dropped in one condition only.
 
-`n=5` is a smoke test, not a statistically meaningful sample: at this size a single noisy judge call can move an average by 0.2, so read the per-entity `groundedness_notes` and `completeness_notes` in `eval/results/` before treating any delta at this scale as a real finding.
+`n=5` is a smoke test: one noisy judge call can move an average by 0.2, so read the per-entity notes in `eval/results/` before trusting any delta.
 
 ## Known limitations
 
-- Gemini's free tier enforces a daily request cap per model per project (check your live numbers in the AI Studio dashboard; Google does not publish a fixed figure and it varies by model and account history). Critic (`gemini-3.5-flash-lite`) and Synthesizer (`gemini-3.5-flash`) run on different models specifically so they draw from separate quota buckets, but each bucket is still finite.
-- Groq's free tier caps `openai/gpt-oss-120b` at 1,000 requests/day per key. Every pending step costs one Executor call before its tool runs, including steps that end up `blocked` or `failed`, so usage is bounded by plan size rather than by `MAX_TOOL_CALLS`. A typical run stays near its tool-call count (about 10 to 15) and the worst case is 8 steps x 4 plans = 32. Budget roughly 30 to 90 full research runs/day on the Executor's key, the tightest constraint in the whole pipeline.
-- The 8-minute wall clock is enforced between steps, not inside a call, so a run can overrun it by the length of one in-flight step.
-- The Synthesizer's `field_status` is checked against the scratchpad (a field cannot be `confirmed` without a non-empty entry tagged with that field), but whether the report text is actually supported by those entries is judged by the model, not verified in code.
-- The API has no rate limiting and each request holds a worker for the whole run, so `API_ACCESS_KEY` is the only protection for your provider quotas.
-- Memory freshness is per field, but a field is cached from whichever run last confirmed it, so different fields of one entity can be different ages.
-- At small ablation sample sizes, the Critic's measured effect on groundedness and completeness is dominated by LLM-judge scoring variance, not the Critic itself.
-
-## Testing
-
-```
-pip install -r requirements-dev.txt
-pytest
-```
-
-Tests run fully offline: `tests/conftest.py` injects fake API keys and every LLM, Tavily and Postgres call is stubbed. `tests/test_repo_consistency.py` also checks that file and function references in the docs resolve to real code.
+- **Gemini quota**: a daily request cap per model per project (see the AI Studio dashboard; Google publishes no fixed figure). Critic and Synthesizer use different models for separate buckets, but each is finite.
+- **Groq quota**: 1,000 requests/day per key for `openai/gpt-oss-120b` on the free tier. Every pending step costs one Executor call, including `blocked` and `failed` ones, so usage is bounded by plan size, not `MAX_TOOL_CALLS`: typically near the tool-call count (about 10 to 15), worst case 8 steps x 4 plans = 32. Budget roughly 30 to 90 runs/day; this is the tightest constraint.
+- **Wall clock**: enforced between steps, not inside a call, so a run can overrun by one in-flight step.
+- **Synthesizer**: `field_status` is checked against the scratchpad (no `confirmed` without a non-empty entry for that field), but whether the report text matches those entries is judged by the model, not verified in code.
+- **API**: no rate limiting, and each request holds a worker for the whole run, so `API_ACCESS_KEY` is the only protection for your quotas.
+- **Memory**: freshness is per field, so one entity's fields can be different ages.
+- **Ablation**: at small sample sizes the Critic's measured effect is dominated by judge variance.
