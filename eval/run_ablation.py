@@ -3,17 +3,13 @@ import json
 import time
 from pathlib import Path
 from agent.graph import run
+from agent.guardrails import stop_reasons
 from eval.judge import score_run
 import config
 
 BENCHMARK_PATH = Path(__file__).parent / "benchmark.json"
 RESULTS_DIR = Path(__file__).parent / "results"
 
-# Runs that ended because a provider/infra call failed outright, not because
-# the agent did a bad job researching. Averaging these in blends a broken
-# run's near-empty result into the same numbers meant to measure research
-# quality, so they're excluded from the summary's averages and reported
-# separately instead of silently dropped or silently blended in.
 INFRA_FAILURE_REASONS = {
     "planner_unavailable",
     "critic_unavailable",
@@ -24,7 +20,11 @@ INFRA_FAILURE_REASONS = {
 
 def load_benchmark(limit: int | None = None) -> list[dict]:
     benchmark = json.loads(BENCHMARK_PATH.read_text())
-    return benchmark[:limit] if limit else benchmark
+    if limit is None:
+        return benchmark
+    if limit < 1:
+        raise ValueError("limit must be a positive integer")
+    return benchmark[:limit]
 
 
 def run_condition(benchmark: list[dict], critic_enabled: bool) -> list[dict]:
@@ -74,9 +74,21 @@ def _avg(results: list[dict], key: str) -> float | None:
     return sum(values) / len(values) if values else None
 
 
-def summarize(results: list[dict]) -> dict:
-    usable = [r for r in results if r["stop_reason"] not in INFRA_FAILURE_REASONS]
-    excluded = [r for r in results if r["stop_reason"] in INFRA_FAILURE_REASONS]
+def _is_infra_failure(result: dict) -> bool:
+    return bool(stop_reasons(result["stop_reason"]) & INFRA_FAILURE_REASONS)
+
+
+def paired_entities(first: list[dict], second: list[dict]) -> set[str]:
+    def usable(results: list[dict]) -> set[str]:
+        return {r["entity"] for r in results if not _is_infra_failure(r)}
+    return usable(first) & usable(second)
+
+
+def summarize(results: list[dict], only: set[str] | None = None) -> dict:
+    usable_all = [r for r in results if not _is_infra_failure(r)]
+    excluded = [r for r in results if _is_infra_failure(r)]
+    usable = [r for r in usable_all if only is None or r["entity"] in only]
+    unpaired = [r["entity"] for r in usable_all if only is not None and r["entity"] not in only]
     scored = [r for r in usable if r["groundedness"] is not None]
     return {
         "avg_groundedness": _avg(usable, "groundedness"),
@@ -89,20 +101,28 @@ def summarize(results: list[dict]) -> dict:
         "excluded_infra_failures": [
             {"entity": r["entity"], "stop_reason": r["stop_reason"]} for r in excluded
         ],
+        "excluded_unpaired": unpaired,
     }
 
 
+def _positive_int(value: str) -> int:
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return number
+
+
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--limit", type=_positive_int, default=None, help="Only run the first N benchmark entities (useful given free-tier daily quotas)")
+    args = parser.parse_args()
+
     if not config.GROQ_JUDGE_API_KEY:
         raise SystemExit(
             "GROQ_JUDGE_API_KEY is not set. The ablation judge is a separate Groq use case "
             "from the Executor, set it in .env before running this (it can be the same key "
             "as GROQ_EXECUTOR_API_KEY if you're not on the free tier, see README)."
         )
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--limit", type=int, default=None, help="Only run the first N benchmark entities (useful given free-tier daily quotas)")
-    args = parser.parse_args()
 
     benchmark = load_benchmark(limit=args.limit)
     unverified = [b["entity"] for b in benchmark if not b.get("verified")]
@@ -114,9 +134,11 @@ def main():
     with_critic = run_condition(benchmark, critic_enabled=True)
     without_critic = run_condition(benchmark, critic_enabled=False)
 
+    paired = paired_entities(with_critic, without_critic)
     summary = {
-        "with_critic": summarize(with_critic),
-        "without_critic": summarize(without_critic),
+        "paired_entities": sorted(paired),
+        "with_critic": summarize(with_critic, paired),
+        "without_critic": summarize(without_critic, paired),
     }
     summary["delta"] = {
         k: (summary["with_critic"][k] - summary["without_critic"][k])

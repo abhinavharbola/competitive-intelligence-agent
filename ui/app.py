@@ -1,15 +1,17 @@
 import html
 import re
-import time
-import streamlit as st
-
 import sys
+import time
 from pathlib import Path
+
+import streamlit as st
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from agent.graph import build_graph, build_initial_state, seed_from_memory, save_results
+from agent.graph import build_graph, prepare_state, save_results
+from agent.guardrails import stop_reasons
+from tools.results import is_empty_result, source_urls
 import config
 
 st.set_page_config(page_title="Competitive Intelligence Agent", layout="wide")
@@ -162,7 +164,7 @@ with st.expander("Architecture"):
           <div class="cia-flow-arrow">&rarr;</div>
           <div class="cia-flow-box"><div class="cia-flow-role">Synthesizer</div><div class="cia-flow-model">Gemini 3.5 Flash</div></div>
         </div>
-        <div class="cia-flow-note">Critic can send gaps back to Planner &mdash; up to 3 replan cycles. Synthesizer writes only from sourced scratchpad findings, never guesses.</div>
+        <div class="cia-flow-note">Critic can send gaps back to Planner, up to 3 replan cycles. Synthesizer writes only from sourced scratchpad findings, never guesses.</div>
         """,
         unsafe_allow_html=True,
     )
@@ -202,6 +204,17 @@ def render_status_card(field_status: dict) -> str:
     return f'<div class="cia-status-card">{"".join(rows)}</div>'
 
 
+def live_field_status(scratchpad: list) -> dict:
+    return {e["field"]: "confirmed" for e in scratchpad if not is_empty_result(e["result"])}
+
+
+def count_sources(scratchpad: list) -> int:
+    urls: set = set()
+    for e in scratchpad:
+        urls |= source_urls(e["result"])
+    return len(urls)
+
+
 def safe_filename(name: str) -> str:
     cleaned = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
     return cleaned or "entity"
@@ -212,15 +225,11 @@ def append_log(lines: list, entry: str, tag: str = "") -> None:
     lines.append(f'<span class="{cls}">{html.escape(entry)}</span>')
 
 
-if run_clicked and not entity:
-    st.warning("Enter a company or product name first.")
+def log_markup(lines: list) -> str:
+    return f'<div class="cia-log">{"<br>".join(lines)}</div>'
 
-if run_clicked and entity:
-    app = build_graph()
-    initial_state = build_initial_state(entity)
-    initial_state, memory_note = seed_from_memory(initial_state, entity)
-    initial_state["memory_note"] = memory_note
 
+def make_panels():
     log_col, status_col = st.columns([3, 2])
     with log_col:
         st.markdown('<p style="text-align:center; font-weight:600;">Research log</p>', unsafe_allow_html=True)
@@ -228,22 +237,79 @@ if run_clicked and entity:
     with status_col:
         st.markdown('<p style="text-align:center; font-weight:600;">Dossier status</p>', unsafe_allow_html=True)
         status_box = st.empty()
+    return log_box, status_box
+
+
+def render_brief(saved: dict) -> None:
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<p style="text-align:center; font-weight:600;">Filed brief</p>', unsafe_allow_html=True)
+
+    subline = f"Filed {saved['filed_date']} | {saved['source_count']} sources reviewed"
+    report_safe = saved["report"].replace("$", "\\$")
+    full_markdown = (
+        f"# Competitive Intelligence Brief: {saved['entity']}\n\n"
+        f"{subline}\n\n---\n\n"
+        f"{saved['report']}"
+    )
+
+    with st.container(border=True):
+        st.markdown(
+            f"""
+            <div class="cia-brief-eyebrow">Intelligence Brief</div>
+            <h2 class="cia-brief-title">{html.escape(saved['entity'])}</h2>
+            <div class="cia-brief-subline">{html.escape(subline)}</div>
+            <hr class="cia-brief-divider">
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown(report_safe)
+
+        meta_bits = [
+            f"entity: {html.escape(saved['entity'])}",
+            f"tool_calls: {saved['tool_call_count']}",
+            f"replans: {saved['replan_count']}",
+        ]
+        if saved["stop_reason"]:
+            meta_bits.append(f"stop_reason: {html.escape(saved['stop_reason'])}")
+        st.markdown(f'<div class="cia-meta">{" &nbsp;&middot;&nbsp; ".join(meta_bits)}</div>', unsafe_allow_html=True)
+
+        if saved["memory_note"]:
+            st.markdown(
+                f'<div style="margin-top:10px"><span class="stamp stamp-alert">memory</span> '
+                f'{html.escape(saved["memory_note"])}</div>',
+                unsafe_allow_html=True,
+            )
+
+    st.download_button(
+        "Download brief (.md)",
+        data=full_markdown,
+        file_name=f"{safe_filename(saved['entity'])}_brief.md",
+        mime="text/markdown",
+    )
+
+
+if run_clicked and not entity:
+    st.warning("Enter a company or product name first.")
+
+if run_clicked and entity:
+    st.session_state.pop("last_run", None)
+    app = build_graph()
+    initial_state = prepare_state(entity)
+    memory_note = initial_state["memory_note"]
+
+    log_box, status_box = make_panels()
 
     log_lines: list = []
     seen_plan_signatures: set = set()
     seen_replan_count = 0
     logged_approval = False
+    logged_exhausted = False
     logged_next_stage = False
+    logged_stop = ""
     seen_terminal_steps: set = set()
     final_state = None
     run_failed = False
 
-    # app.stream() only yields once a node fully finishes, so Planner and
-    # Synthesizer (each a single LLM call that can take 15-30s+) would
-    # otherwise leave the log looking frozen for that whole stretch. Log
-    # what's already known immediately, then log a "next stage" placeholder
-    # the instant a stage's output arrives, rather than waiting on the next
-    # (invisible, in-flight) node to finish before saying anything.
     append_log(log_lines, f"START  researching {entity}", "plan")
     if memory_note:
         append_log(log_lines, f"MEMORY {memory_note}", "critic")
@@ -251,7 +317,7 @@ if run_clicked and entity:
         label = FIELD_LABELS.get(seeded["field"], seeded["field"])
         append_log(log_lines, f"FOUND  [{label}] via {seeded['tool']}: {seeded['source'][:70]}", "found")
     append_log(log_lines, "PLANNING research strategy...", "plan")
-    log_box.markdown(f'<div class="cia-log">{"<br>".join(log_lines)}</div>', unsafe_allow_html=True)
+    log_box.markdown(log_markup(log_lines), unsafe_allow_html=True)
     seen_scratchpad_len = len(initial_state["scratchpad"])
 
     try:
@@ -272,7 +338,7 @@ if run_clicked and entity:
             seen_scratchpad_len = len(step_state["scratchpad"])
 
             for step in step_state["plan"]:
-                step_key = (step["field"], step["sub_question"])
+                step_key = (plan_signature, step["field"], step["sub_question"])
                 if step_key in seen_terminal_steps:
                     continue
                 if step["status"] == "blocked":
@@ -288,12 +354,15 @@ if run_clicked and entity:
                 append_log(log_lines, "CHECKING coverage against required fields...", "critic")
                 logged_next_stage = True
 
-            if step_state["replan_count"] != seen_replan_count:
-                gaps = ", ".join(step_state["critique"]["gaps"])
-                if step_state["stop_reason"] == "max_replans":
+            gaps = ", ".join(step_state["critique"]["gaps"])
+            exhausted = "max_replans" in stop_reasons(step_state["stop_reason"])
+            if exhausted:
+                if not logged_exhausted:
                     append_log(log_lines, f"CRITIC gaps in [{gaps}] -> replan budget exhausted ({step_state['replan_count']}/{config.MAX_REPLAN_CYCLES})", "critic")
-                else:
-                    append_log(log_lines, f"CRITIC gaps in [{gaps}] -> replanning (cycle {step_state['replan_count']}/{config.MAX_REPLAN_CYCLES})", "critic")
+                    logged_exhausted = True
+                    seen_replan_count = step_state["replan_count"]
+            elif step_state["replan_count"] != seen_replan_count:
+                append_log(log_lines, f"CRITIC gaps in [{gaps}] -> replanning (cycle {step_state['replan_count']}/{config.MAX_REPLAN_CYCLES})", "critic")
                 seen_replan_count = step_state["replan_count"]
                 logged_approval = False
                 logged_next_stage = False
@@ -302,8 +371,9 @@ if run_clicked and entity:
                 append_log(log_lines, "WRITING final brief...", "plan")
                 logged_approval = True
 
-            if step_state["stop_reason"]:
+            if step_state["stop_reason"] and step_state["stop_reason"] != logged_stop:
                 append_log(log_lines, f"STOP   {step_state['stop_reason']}", "stop")
+                logged_stop = step_state["stop_reason"]
                 if not logged_approval:
                     append_log(log_lines, "WRITING final brief from what was confirmed so far...", "plan")
                     logged_approval = True
@@ -311,61 +381,34 @@ if run_clicked and entity:
             if step_state["report"]:
                 append_log(log_lines, "REPORT filed", "found")
 
-            log_box.markdown(f'<div class="cia-log">{"<br>".join(log_lines)}</div>', unsafe_allow_html=True)
-
-            live_status = {e["field"]: "confirmed" for e in step_state["scratchpad"]}
-            status_box.markdown(render_status_card(live_status), unsafe_allow_html=True)
+            log_box.markdown(log_markup(log_lines), unsafe_allow_html=True)
+            status_box.markdown(render_status_card(live_field_status(step_state["scratchpad"])), unsafe_allow_html=True)
     except Exception as e:
         run_failed = True
         st.error(f"The research run hit an unexpected error and could not finish: {e}")
 
     if final_state and not run_failed:
         save_results(entity, final_state)
-        status_box.markdown(render_status_card(final_state["field_status"]), unsafe_allow_html=True)
+        status_html = render_status_card(final_state["field_status"])
+        status_box.markdown(status_html, unsafe_allow_html=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<p style="text-align:center; font-weight:600;">Filed brief</p>', unsafe_allow_html=True)
-
-        filed_date = time.strftime("%d %b %Y")
-        source_count = len({e["source"] for e in final_state["scratchpad"]})
-        report_safe = final_state["report"].replace("$", "\\$")
-        full_markdown = (
-            f"# Competitive Intelligence Brief: {final_state['entity']}\n\n"
-            f"Filed {filed_date} &middot; {source_count} sources reviewed\n\n---\n\n"
-            f"{final_state['report']}"
-        )
-
-        with st.container(border=True):
-            st.markdown(
-                f"""
-                <div class="cia-brief-eyebrow">Intelligence Brief</div>
-                <h2 class="cia-brief-title">{html.escape(final_state['entity'])}</h2>
-                <div class="cia-brief-subline">Filed {filed_date} &middot; {source_count} sources reviewed</div>
-                <hr class="cia-brief-divider">
-                """,
-                unsafe_allow_html=True,
-            )
-            st.markdown(report_safe)
-
-            meta_bits = [
-                f"entity: {html.escape(final_state['entity'])}",
-                f"tool_calls: {final_state['tool_call_count']}",
-                f"replans: {final_state['replan_count']}",
-            ]
-            if final_state["stop_reason"]:
-                meta_bits.append(f"stop_reason: {html.escape(final_state['stop_reason'])}")
-            st.markdown(f'<div class="cia-meta">{" &nbsp;&middot;&nbsp; ".join(meta_bits)}</div>', unsafe_allow_html=True)
-
-            if final_state["memory_note"]:
-                st.markdown(
-                    f'<div style="margin-top:10px"><span class="stamp stamp-alert">memory</span> '
-                    f'{html.escape(final_state["memory_note"])}</div>',
-                    unsafe_allow_html=True,
-                )
-
-        st.download_button(
-            "Download brief (.md)",
-            data=full_markdown,
-            file_name=f"{safe_filename(entity)}_brief.md",
-            mime="text/markdown",
-        )
+        saved = {
+            "entity": final_state["entity"],
+            "report": final_state["report"],
+            "tool_call_count": final_state["tool_call_count"],
+            "replan_count": final_state["replan_count"],
+            "stop_reason": final_state["stop_reason"],
+            "memory_note": final_state["memory_note"],
+            "source_count": count_sources(final_state["scratchpad"]),
+            "filed_date": time.strftime("%d %b %Y"),
+            "log_html": log_markup(log_lines),
+            "status_html": status_html,
+        }
+        st.session_state["last_run"] = saved
+        render_brief(saved)
+elif "last_run" in st.session_state:
+    saved = st.session_state["last_run"]
+    log_box, status_box = make_panels()
+    log_box.markdown(saved["log_html"], unsafe_allow_html=True)
+    status_box.markdown(saved["status_html"], unsafe_allow_html=True)
+    render_brief(saved)
