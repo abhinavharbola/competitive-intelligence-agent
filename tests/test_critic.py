@@ -107,13 +107,33 @@ def test_critique_valid_gaps_never_approved(state, monkeypatch):
     assert out["replan_count"] == 1
 
 
-def test_critique_sets_max_replans_when_budget_reached(state, monkeypatch):
+def test_critique_grants_final_replan_before_budget_is_reached(state, monkeypatch):
     import config
     monkeypatch.setattr(llm, "call_gemini", _fake({"approved": False, "gaps": ["risks"]}))
     state["replan_count"] = config.MAX_REPLAN_CYCLES - 1
     out = critic.critique(state)
     assert out["replan_count"] == config.MAX_REPLAN_CYCLES
+    assert out["stop_reason"] == ""
+
+
+def test_critique_sets_max_replans_only_after_all_replans_are_used(state, monkeypatch):
+    import config
+    monkeypatch.setattr(llm, "call_gemini", _fake({"approved": False, "gaps": ["risks"]}))
+    state["replan_count"] = config.MAX_REPLAN_CYCLES
+    out = critic.critique(state)
+    assert out["replan_count"] == config.MAX_REPLAN_CYCLES
     assert out["stop_reason"] == "max_replans"
+
+
+def test_critic_response_does_not_require_approved(state, monkeypatch):
+    monkeypatch.setattr(llm, "call_gemini", _fake({"gaps": ["risks"]}))
+    out = critic.critique(state)
+    assert out["critique"] == {"approved": False, "gaps": ["risks"]}
+
+
+def test_critic_prompt_carries_untrusted_notice():
+    from tools.results import UNTRUSTED_NOTICE
+    assert UNTRUSTED_NOTICE in critic.SYSTEM
 
 
 def test_critique_does_not_set_stop_reason_below_budget(state, monkeypatch):
@@ -124,5 +144,7 @@ def test_critique_does_not_set_stop_reason_below_budget(state, monkeypatch):
 def test_critique_approval_at_budget_does_not_set_stop_reason(state, monkeypatch):
     import config
     monkeypatch.setattr(llm, "call_gemini", _fake({"approved": True, "gaps": []}))
-    state["replan_count"] = config.MAX_REPLAN_CYCLES - 1
+    state["replan_count"] = config.MAX_REPLAN_CYCLES
     assert critic.critique(state)["stop_reason"] == ""
+
+

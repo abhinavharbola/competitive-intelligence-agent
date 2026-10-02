@@ -13,11 +13,27 @@ class StatusError(Exception):
         self.status_code = status_code
 
 
+class CodeError(Exception):
+    def __init__(self, code, msg="err"):
+        super().__init__(msg)
+        self.code = code
+
+
 @pytest.mark.parametrize("exc,expected", [
     (StatusError(401), False),
     (StatusError(403), False),
     (StatusError(503), True),
     (StatusError(429), True),
+    (StatusError(400), False),
+    (StatusError(404), False),
+    (StatusError(422), False),
+    (CodeError(403), False),
+    (CodeError(400, "API key not valid. Please pass a valid API key."), False),
+    (CodeError(503), True),
+    (CodeError(429, "rate limited"), True),
+    (StatusError(429, "Quota exceeded: requests per day"), False),
+    (CodeError(429, "GenerateRequestsPerDayPerProjectPerModel exceeded"), False),
+    (RuntimeError("API key not valid"), False),
     (RuntimeError("Invalid_API_Key provided"), False),
     (RuntimeError("Incorrect API key"), False),
     (RuntimeError("PERMISSION_DENIED"), False),
@@ -180,3 +196,109 @@ def test_call_gemini_invalid_json_raises(monkeypatch):
     monkeypatch.setattr(llm, "_gemini", FakeGemini("nope"))
     with pytest.raises(json.JSONDecodeError):
         llm.call_gemini("m", "s", "u")
+
+
+
+
+def test_with_retries_uses_longer_backoff_for_rate_limits(monkeypatch):
+    delays = []
+    monkeypatch.setattr(llm.time, "sleep", lambda d: delays.append(d))
+
+    def fn():
+        raise StatusError(429, "slow down")
+
+    with pytest.raises(StatusError):
+        llm._with_retries(fn)
+    assert delays == [10, 20]
+
+
+def test_with_retries_fails_fast_on_daily_quota():
+    calls = []
+
+    def fn():
+        calls.append(1)
+        raise StatusError(429, "daily quota exhausted")
+
+    with pytest.raises(StatusError):
+        llm._with_retries(fn)
+    assert len(calls) == 1
+
+
+def test_with_retries_logs_each_failed_attempt(monkeypatch):
+    events = []
+    monkeypatch.setattr(llm.logfire, "warn", lambda name, **kw: events.append((name, kw)))
+
+    def fn():
+        raise RuntimeError("503")
+
+    with pytest.raises(RuntimeError):
+        llm._with_retries(fn, label="m")
+    assert [e[0] for e in events] == ["llm_call_failed"] * llm._RETRY_ATTEMPTS
+    assert events[0][1]["call"] == "m" and events[0][1]["attempt"] == 1
+
+
+def test_run_with_timeout_returns_value():
+    assert llm._run_with_timeout(lambda: 7, seconds=2) == 7
+
+
+def test_run_with_timeout_propagates_errors():
+    def fn():
+        raise ValueError("boom")
+
+    with pytest.raises(ValueError, match="boom"):
+        llm._run_with_timeout(fn, seconds=2)
+
+
+def test_run_with_timeout_raises_when_call_hangs():
+    import threading
+    release = threading.Event()
+
+    def fn():
+        release.wait(5)
+
+    try:
+        with pytest.raises(TimeoutError):
+            llm._run_with_timeout(fn, seconds=0.05)
+    finally:
+        release.set()
+
+
+def test_timeout_error_is_retryable():
+    assert llm._is_retryable(TimeoutError("call exceeded 60s")) is True
+
+
+def test_call_gemini_retries_malformed_json_then_succeeds(monkeypatch):
+    texts = ["nope", '{"ok": true}']
+
+    class Models:
+        def generate_content(self, **kwargs):
+            return SimpleNamespace(text=texts.pop(0), usage_metadata=None)
+
+    monkeypatch.setattr(llm, "_gemini", SimpleNamespace(models=Models()))
+    assert llm.call_gemini("m", "s", "u") == {"ok": True}
+
+
+def test_call_openai_compatible_retries_malformed_json_then_succeeds(monkeypatch):
+    contents = ["nope", '{"a": 1}']
+
+    class Completions:
+        def create(self, **kwargs):
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=contents.pop(0)))],
+                usage=SimpleNamespace(prompt_tokens=1, completion_tokens=2),
+            )
+
+    monkeypatch.setattr(llm, "_nim", SimpleNamespace(chat=SimpleNamespace(completions=Completions())))
+    assert llm.call_planner("s", "u") == {"a": 1}
+
+
+def test_call_openai_compatible_handles_missing_usage(monkeypatch):
+    class Completions:
+        def create(self, **kwargs):
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="{}"))],
+                usage=None,
+            )
+
+    monkeypatch.setattr(llm, "_nim", SimpleNamespace(chat=SimpleNamespace(completions=Completions())))
+    assert llm.call_planner("s", "u") == {}

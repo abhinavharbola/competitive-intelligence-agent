@@ -30,7 +30,7 @@ def test_readme_relative_links_resolve():
 
 
 @pytest.mark.parametrize("name", [
-    ".gitignore", ".env.example", "requirements.txt",
+    ".gitignore", ".env.example", "requirements.txt", "requirements-dev.txt",
     "pytest.ini", "memory/schema.sql", "eval/results/.gitkeep", "docs/architecture.md",
 ])
 def test_expected_project_files_exist(name):
@@ -50,3 +50,5 @@ def test_every_source_module_imports():
                  "api.main", "eval.judge", "eval.run_ablation", "tools.calculator", "tools.memory",
                  "tools.results", "tools.search"]:
         importlib.import_module(path)
+
+

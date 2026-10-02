@@ -9,6 +9,7 @@ for _key, _value in {
     "TAVILY_API_KEY": "test-tavily",
     "NEON_DSN": "",
     "LOGFIRE_TOKEN": "",
+    "API_ACCESS_KEY": "",
 }.items():
     os.environ[_key] = _value
 
@@ -53,3 +54,5 @@ def expired_state(state):
 @pytest.fixture(autouse=True)
 def no_sleep(monkeypatch):
     monkeypatch.setattr(time, "sleep", lambda *_: None)
+
+

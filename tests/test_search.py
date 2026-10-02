@@ -70,3 +70,5 @@ def test_web_search_passes_max_results(monkeypatch):
     monkeypatch.setattr(search, "_client", C())
     search.web_search("q", max_results=3)
     assert seen["max"] == 3
+
+

@@ -87,6 +87,18 @@ def test_load_benchmark_full_and_limit():
     assert load_benchmark(limit=None) == load_benchmark()
 
 
+@pytest.mark.parametrize("bad", [0, -1, -5])
+def test_load_benchmark_rejects_non_positive_limit(bad):
+    with pytest.raises(ValueError):
+        load_benchmark(limit=bad)
+
+
+def test_judge_prompt_treats_ground_truth_as_snapshot_and_carries_notice():
+    from tools.results import UNTRUSTED_NOTICE
+    assert "dated snapshot" in judge.SYSTEM
+    assert UNTRUSTED_NOTICE in judge.SYSTEM
+
+
 def _res(stop="", g=4, c=5, tools=10, secs=30.0, entity="E"):
     return {"entity": entity, "groundedness": g, "completeness": c, "tool_call_count": tools,
             "elapsed_seconds": secs, "stop_reason": stop, "replan_count": 0}
@@ -168,8 +180,28 @@ def test_run_condition_isolates_failures(monkeypatch):
 
 def test_main_requires_judge_key(monkeypatch):
     monkeypatch.setattr(config, "GROQ_JUDGE_API_KEY", "")
-    with pytest.raises(SystemExit):
+    monkeypatch.setattr("sys.argv", ["run_ablation"])
+    with pytest.raises(SystemExit) as exc:
         run_ablation.main()
+    assert "GROQ_JUDGE_API_KEY" in str(exc.value)
+
+
+@pytest.mark.parametrize("bad", ["0", "-2", "abc"])
+def test_main_rejects_invalid_limit(monkeypatch, bad):
+    monkeypatch.setattr(config, "GROQ_JUDGE_API_KEY", "k")
+    monkeypatch.setattr("sys.argv", ["run_ablation", "--limit", bad])
+    with pytest.raises(SystemExit) as exc:
+        run_ablation.main()
+    assert exc.value.code == 2
+
+
+def test_help_works_without_judge_key(monkeypatch, capsys):
+    monkeypatch.setattr(config, "GROQ_JUDGE_API_KEY", "")
+    monkeypatch.setattr("sys.argv", ["run_ablation", "--help"])
+    with pytest.raises(SystemExit) as exc:
+        run_ablation.main()
+    assert exc.value.code == 0
+    assert "--limit" in capsys.readouterr().out
 
 
 def test_main_writes_results_and_delta(monkeypatch, tmp_path, capsys):
@@ -209,3 +241,44 @@ def test_main_warns_on_unverified_entries(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(run_ablation, "run_condition", lambda b, critic_enabled: [_res()])
     run_ablation.main()
     assert "unverified" in capsys.readouterr().out
+
+
+
+
+def test_summarize_treats_combined_stop_reason_with_infra_part_as_excluded():
+    s = summarize([_res(g=4), _res(stop="max_replans+synthesizer_unavailable", g=1, entity="Bad")])
+    assert s["avg_groundedness"] == 4
+    assert [e["entity"] for e in s["excluded_infra_failures"]] == ["Bad"]
+
+
+def test_summarize_restricts_to_paired_entities_and_reports_unpaired():
+    s = summarize([_res(g=4, entity="A"), _res(g=0, entity="B")], only={"A"})
+    assert s["avg_groundedness"] == 4
+    assert s["excluded_unpaired"] == ["B"]
+    assert s["total_entities"] == 2
+
+
+def test_paired_entities_intersects_usable_runs():
+    first = [_res(entity="A"), _res(entity="B"), _res(stop="planner_unavailable", entity="C")]
+    second = [_res(entity="A"), _res(stop="critic_unavailable", entity="B"), _res(entity="C")]
+    assert run_ablation.paired_entities(first, second) == {"A"}
+
+
+def test_main_delta_is_computed_over_paired_entities_only(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "GROQ_JUDGE_API_KEY", "k")
+    monkeypatch.setattr(run_ablation, "RESULTS_DIR", tmp_path / "results")
+    monkeypatch.setattr("sys.argv", ["run_ablation"])
+    monkeypatch.setattr(run_ablation, "load_benchmark", lambda limit=None: [{"entity": "A"}, {"entity": "B"}])
+
+    def fake_condition(bench, critic_enabled):
+        if critic_enabled:
+            return [_res(g=4, entity="A"), _res(g=5, entity="B")]
+        return [_res(g=2, entity="A"), _res(stop="planner_unavailable", g=0, entity="B")]
+
+    monkeypatch.setattr(run_ablation, "run_condition", fake_condition)
+    run_ablation.main()
+    summary = json.loads((tmp_path / "results" / "summary.json").read_text())
+    assert summary["paired_entities"] == ["A"]
+    assert summary["with_critic"]["avg_groundedness"] == 4
+    assert summary["delta"]["avg_groundedness"] == 2
+    assert summary["with_critic"]["excluded_unpaired"] == ["B"]

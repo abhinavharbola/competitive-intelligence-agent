@@ -39,9 +39,14 @@ def test_valid_planner_steps_rejects_missing_steps_key():
         schemas.valid_planner_steps({})
 
 
-def test_critic_response_requires_both_keys():
+def test_critic_response_requires_gaps():
     with pytest.raises(ValidationError):
         schemas.CriticResponse.model_validate({"approved": True})
+
+
+def test_critic_response_approved_is_optional():
+    parsed = schemas.CriticResponse.model_validate({"gaps": ["risks"]})
+    assert parsed.approved is None and parsed.gaps == ["risks"]
 
 
 def test_executor_args_defaults_to_empty_strings():
@@ -49,11 +54,27 @@ def test_executor_args_defaults_to_empty_strings():
     assert args.query == "" and args.expression == ""
 
 
-def test_synthesizer_response_rejects_invalid_status_value():
+def test_synthesizer_response_tolerates_unknown_status_value():
+    parsed = schemas.SynthesizerResponse.model_validate(
+        {"report_markdown": "x", "field_status": {"risks": "maybe"}}
+    )
+    assert parsed.field_status == {"risks": "maybe"}
+
+
+def test_synthesizer_response_requires_report():
     with pytest.raises(ValidationError):
-        schemas.SynthesizerResponse.model_validate(
-            {"report_markdown": "x", "field_status": {"risks": "maybe"}}
-        )
+        schemas.SynthesizerResponse.model_validate({"field_status": {}})
+
+
+def test_clean_field_status_coerces_drops_and_fills():
+    import config
+    cleaned = schemas.clean_field_status(
+        {"risks": "confirmed", "competitors": "maybe", "bogus": "confirmed"}
+    )
+    assert set(cleaned) == set(config.REQUIRED_FIELDS)
+    assert cleaned["risks"] == "confirmed"
+    assert cleaned["competitors"] == "insufficient information"
+    assert cleaned["what_it_does"] == "insufficient information"
 
 
 def test_synthesizer_response_accepts_valid_payload():
@@ -61,3 +82,5 @@ def test_synthesizer_response_accepts_valid_payload():
         {"report_markdown": "x", "field_status": {"risks": "confirmed"}}
     )
     assert parsed.field_status["risks"] == "confirmed"
+
+

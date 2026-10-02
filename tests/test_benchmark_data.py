@@ -32,3 +32,5 @@ def test_schema_sql_defines_expected_table_and_index():
     for col in ("entity_normalized", "entity_raw", "created_at", "findings", "sources"):
         assert col in sql
     assert "idx_research_runs_entity_normalized" in sql
+
+

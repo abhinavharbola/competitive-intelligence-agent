@@ -39,8 +39,8 @@ def test_execute_calculator_step_uses_calculator_source(state, step, monkeypatch
     _patch(monkeypatch, {"expression": "1+1"})
     state["plan"] = [step(tool="calculator")]
     out = executor.execute(state)
-    assert out["scratchpad"][0]["source"] == "calculator"
-    assert out["scratchpad"][0]["result"] == "42"
+    assert out["scratchpad"][0]["source"] == "calculator: 1+1"
+    assert out["scratchpad"][0]["result"] == "1+1 = 42"
     assert out["plan"][0]["status"] == "done"
 
 
@@ -189,3 +189,78 @@ def test_execute_prompt_includes_date_question_and_tool(state, step, monkeypatch
     assert state["today"] in captured["user"]
     assert "the question" in captured["user"]
     assert "Tool: search" in captured["user"]
+
+
+
+
+def test_execute_same_field_duplicate_is_not_recorded_twice(state, step, monkeypatch):
+    _patch(monkeypatch, {"query": "Same"}, search=lambda q: "res")
+    state["plan"] = [step(field="risks"), step(field="risks", sub_question="again")]
+    out = executor.execute(state)
+    assert [s["status"] for s in out["plan"]] == ["done", "blocked"]
+    assert len(out["scratchpad"]) == 1
+    assert out["tool_call_count"] == 1
+
+
+def test_execute_uses_expression_key_for_calculator_and_query_key_for_search(state, step, monkeypatch):
+    _patch(monkeypatch, {"query": "only a query"}, calc=lambda e: "1")
+    state["plan"] = [step(tool="calculator")]
+    assert executor.execute(state)["plan"][0]["status"] == "failed"
+
+    _patch(monkeypatch, {"expression": "1+1"})
+    state["plan"] = [step(tool="search")]
+    assert executor.execute(state)["plan"][0]["status"] == "failed"
+
+
+def test_execute_prompt_lists_already_run_queries(state, step, entry, monkeypatch):
+    captured = {}
+
+    def fake(system, user):
+        captured["user"] = user
+        return {"query": "fresh"}
+
+    monkeypatch.setattr(llm, "call_executor", fake)
+    monkeypatch.setattr(executor, "web_search", lambda q: "r")
+    state["scratchpad"] = [entry(args="old query one"), entry(args="old query two")]
+    state["plan"] = [step()]
+    executor.execute(state)
+    assert "Already-run queries, do not repeat: old query one; old query two" in captured["user"]
+
+
+def test_execute_calculator_prompt_includes_findings_but_search_prompt_does_not(state, step, entry, monkeypatch):
+    captured = []
+
+    def fake(system, user):
+        captured.append(user)
+        return {"expression": "1+1", "query": "q"}
+
+    monkeypatch.setattr(llm, "call_executor", fake)
+    monkeypatch.setattr(executor, "web_search", lambda q: "r")
+    monkeypatch.setattr(executor, "calculate", lambda e: "2")
+    state["scratchpad"] = [entry(result="revenue was 100")]
+    state["plan"] = [step(tool="calculator"), step(tool="search")]
+    executor.execute(state)
+    assert "Findings available for the calculation" in captured[0] and "revenue was 100" in captured[0]
+    assert "Findings available for the calculation" not in captured[1]
+
+
+def test_execute_stops_on_wall_clock_after_args_generated(state, step, monkeypatch):
+    import time
+    import config
+
+    def fake(system, user):
+        state["start_time"] = time.time() - config.MAX_WALL_CLOCK_SECONDS - 1
+        return {"query": "q"}
+
+    monkeypatch.setattr(llm, "call_executor", fake)
+    called = []
+    monkeypatch.setattr(executor, "web_search", lambda q: called.append(q) or "r")
+    state["plan"] = [step()]
+    out = executor.execute(state)
+    assert out["stop_reason"] == "wall_clock"
+    assert called == []
+
+
+def test_executor_prompt_carries_untrusted_notice():
+    from tools.results import UNTRUSTED_NOTICE
+    assert UNTRUSTED_NOTICE in executor.SYSTEM

@@ -14,6 +14,7 @@ def test_limits_match_documented_values():
     assert config.MAX_TOOL_CALLS == 15
     assert config.MAX_WALL_CLOCK_SECONDS == 480
     assert config.MEMORY_CACHE_DAYS == 7
+    assert config.MAX_PLAN_STEPS == 8
 
 
 def test_required_helper_raises_on_missing(monkeypatch):
@@ -46,10 +47,15 @@ def test_optional_keys_default_to_empty(monkeypatch):
     monkeypatch.delenv("GROQ_JUDGE_API_KEY")
     monkeypatch.delenv("NEON_DSN")
     monkeypatch.delenv("LOGFIRE_TOKEN")
+    monkeypatch.delenv("API_ACCESS_KEY")
     monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: False)
     importlib.reload(config)
     assert config.GROQ_JUDGE_API_KEY == "" and config.NEON_DSN == "" and config.LOGFIRE_TOKEN == ""
+    assert config.API_ACCESS_KEY == ""
     monkeypatch.setenv("GROQ_JUDGE_API_KEY", "test-groq-judge")
     monkeypatch.setenv("NEON_DSN", "")
     monkeypatch.setenv("LOGFIRE_TOKEN", "")
+    monkeypatch.setenv("API_ACCESS_KEY", "")
     importlib.reload(config)
+
+

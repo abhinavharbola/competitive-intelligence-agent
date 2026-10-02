@@ -37,3 +37,26 @@ def test_traced_node_propagates_exceptions():
 
     with pytest.raises(ValueError):
         fn({})
+
+
+
+
+def test_add_stop_reason_sets_first_reason(state):
+    from agent.guardrails import add_stop_reason
+    add_stop_reason(state, "a")
+    assert state["stop_reason"] == "a"
+
+
+def test_add_stop_reason_appends_and_dedupes(state):
+    from agent.guardrails import add_stop_reason
+    add_stop_reason(state, "a")
+    add_stop_reason(state, "b")
+    add_stop_reason(state, "b")
+    assert state["stop_reason"] == "a+b"
+
+
+def test_stop_reasons_parses_combined_value():
+    from agent.guardrails import stop_reasons
+    assert stop_reasons("a+b") == {"a", "b"}
+    assert stop_reasons("") == set()
+    assert stop_reasons(None) == set()

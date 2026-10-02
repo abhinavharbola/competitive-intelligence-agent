@@ -3,6 +3,7 @@ import agent.graph as g
 from agent.graph import (
     build_graph,
     build_initial_state,
+    prepare_state,
     route_after_critic,
     run,
     save_results,
@@ -46,9 +47,22 @@ def test_route_gaps_below_limit_replans(state):
     assert route_after_critic(state) == "planner"
 
 
-def test_route_gaps_at_limit_goes_to_synthesizer(state):
+def test_route_gaps_at_limit_still_replans_until_critic_sets_stop_reason(state):
     state["critique"] = {"approved": False, "gaps": ["risks"]}
     state["replan_count"] = config.MAX_REPLAN_CYCLES
+    assert route_after_critic(state) == "planner"
+
+
+def test_route_max_replans_stop_reason_goes_to_synthesizer(state):
+    state["critique"] = {"approved": False, "gaps": ["risks"]}
+    state["replan_count"] = config.MAX_REPLAN_CYCLES
+    state["stop_reason"] = "max_replans"
+    assert route_after_critic(state) == "synthesizer"
+
+
+def test_route_count_beyond_limit_goes_to_synthesizer(state):
+    state["critique"] = {"approved": False, "gaps": ["risks"]}
+    state["replan_count"] = config.MAX_REPLAN_CYCLES + 1
     assert route_after_critic(state) == "synthesizer"
 
 
@@ -67,7 +81,10 @@ def _patch_nodes(monkeypatch, critic_gaps_forever=False):
         calls["critic"] += 1
         if critic_gaps_forever:
             s["critique"] = {"approved": False, "gaps": ["risks"]}
-            s["replan_count"] += 1
+            if s["replan_count"] >= config.MAX_REPLAN_CYCLES:
+                s["stop_reason"] = "max_replans"
+            else:
+                s["replan_count"] += 1
         else:
             s["critique"] = {"approved": True, "gaps": []}
         return s
@@ -107,7 +124,8 @@ def test_graph_with_critic_has_critic_node():
 def test_graph_replans_until_max_cycles_then_synthesizes(monkeypatch):
     calls = _patch_nodes(monkeypatch, critic_gaps_forever=True)
     out = build_graph().invoke(build_initial_state("X"))
-    assert calls["planner"] == config.MAX_REPLAN_CYCLES
+    assert calls["planner"] == config.MAX_REPLAN_CYCLES + 1
+    assert calls["critic"] == config.MAX_REPLAN_CYCLES + 1
     assert calls["synthesizer"] == 1
     assert out["replan_count"] == config.MAX_REPLAN_CYCLES
 
@@ -121,7 +139,7 @@ def test_graph_max_replans_stop_reason_survives_to_final_state(monkeypatch):
     out = build_graph().invoke(build_initial_state("X"))
     assert out["stop_reason"] == "max_replans"
     assert out["replan_count"] == config.MAX_REPLAN_CYCLES
-    assert calls["planner"] == config.MAX_REPLAN_CYCLES
+    assert calls["planner"] == config.MAX_REPLAN_CYCLES + 1
     assert calls["synthesizer"] == 1
 
 
@@ -135,9 +153,9 @@ def test_route_does_not_mutate_state(state):
 def prior(**over):
     base = {
         "exact_match": True,
-        "age_days": 2,
         "findings": {"what_it_does": "does x", "recent_news": "old news", "risks": "r"},
         "sources": {"what_it_does": ["s1", "s2"]},
+        "ages": {"what_it_does": 2.4, "recent_news": 2.4, "risks": 2.4},
     }
     base.update(over)
     return base
@@ -158,16 +176,32 @@ def test_seed_fuzzy_match_only_notes(state, monkeypatch):
     assert "meta financial" in note and "90" in note and "not auto-used" in note
 
 
-def test_seed_stale_exact_match_ignored(state, monkeypatch):
-    monkeypatch.setattr(g, "find_prior_research", lambda e: prior(age_days=config.MEMORY_CACHE_DAYS + 1))
+def test_seed_stale_fields_ignored(state, monkeypatch):
+    stale = config.MEMORY_CACHE_DAYS + 0.5
+    monkeypatch.setattr(g, "find_prior_research", lambda e: prior(ages={"what_it_does": stale, "risks": stale}))
     out, note = seed_from_memory(state, "Acme")
     assert out["scratchpad"] == [] and note == ""
 
 
 def test_seed_boundary_age_is_still_fresh(state, monkeypatch):
-    monkeypatch.setattr(g, "find_prior_research", lambda e: prior(age_days=config.MEMORY_CACHE_DAYS))
+    fresh = float(config.MEMORY_CACHE_DAYS)
+    monkeypatch.setattr(g, "find_prior_research", lambda e: prior(ages={"what_it_does": fresh, "risks": fresh}))
     out, _ = seed_from_memory(state, "Acme")
     assert len(out["scratchpad"]) == 2
+
+
+def test_seed_applies_freshness_per_field(state, monkeypatch):
+    ages = {"what_it_does": 1.0, "risks": config.MEMORY_CACHE_DAYS + 1}
+    monkeypatch.setattr(g, "find_prior_research", lambda e: prior(ages=ages))
+    out, _ = seed_from_memory(state, "Acme")
+    assert [e["field"] for e in out["scratchpad"]] == ["what_it_does"]
+
+
+def test_seed_skips_fields_without_an_age_or_unknown_fields(state, monkeypatch):
+    findings = {"what_it_does": "x", "bogus": "y"}
+    monkeypatch.setattr(g, "find_prior_research", lambda e: prior(findings=findings, ages={"bogus": 1.0}))
+    out, _ = seed_from_memory(state, "Acme")
+    assert out["scratchpad"] == []
 
 
 def test_seed_skips_recent_news_and_records_provenance(state, monkeypatch):
@@ -181,6 +215,19 @@ def test_seed_skips_recent_news_and_records_provenance(state, monkeypatch):
     assert by_field["risks"]["source"] == "cache, 2d old, originally: unrecorded"
     assert all(e["tool"] == "memory" for e in out["scratchpad"])
     assert note == ""
+
+
+def test_prepare_state_seeds_and_sets_memory_note(monkeypatch):
+    monkeypatch.setattr(g, "seed_from_memory", lambda s, e: (s, "a note"))
+    assert prepare_state("Acme")["memory_note"] == "a note"
+
+
+def test_prepare_state_without_memory_never_touches_it(monkeypatch):
+    def boom(*a):
+        raise AssertionError("memory must not be used")
+    monkeypatch.setattr(g, "seed_from_memory", boom)
+    out = prepare_state("Acme", use_memory=False)
+    assert out["memory_note"] == "" and out["scratchpad"] == []
 
 
 def _final(scratchpad, status):
@@ -233,21 +280,52 @@ def test_save_results_skips_field_whose_entries_are_all_empty(monkeypatch, entry
     saved = {}
     monkeypatch.setattr(g, "save_research", lambda e, f, s: saved.update(f=f))
     save_results("Acme", _final([entry(field="risks", result=EMPTY_RESULT)], {"risks": "confirmed"}))
-    assert saved["f"] == {}
+    assert saved == {}
 
 
 def test_save_results_skips_confirmed_field_with_no_entries(monkeypatch):
     saved = {}
     monkeypatch.setattr(g, "save_research", lambda e, f, s: saved.update(f=f))
     save_results("Acme", _final([], {"risks": "confirmed"}))
-    assert saved["f"] == {}
+    assert saved == {}
 
 
 def test_save_results_ignores_non_required_fields(monkeypatch, entry):
     saved = {}
     monkeypatch.setattr(g, "save_research", lambda e, f, s: saved.update(f=f))
     save_results("Acme", _final([entry(field="bogus")], {"bogus": "confirmed"}))
-    assert saved["f"] == {}
+    assert saved == {}
+
+
+def test_save_results_never_resaves_cached_memory_entries(monkeypatch, entry):
+    saved = {}
+    monkeypatch.setattr(g, "save_research", lambda e, f, s: saved.update(f=f, s=s))
+    final = _final(
+        [entry(field="risks", tool="memory", result="cached", source="cache, 6d old, originally: q0"),
+         entry(field="risks", result="fresh", source="q1"),
+         entry(field="competitors", tool="memory", result="cached c", source="cache")],
+        {"risks": "confirmed", "competitors": "confirmed"},
+    )
+    save_results("Acme", final)
+    assert saved["f"] == {"risks": "fresh"}
+    assert saved["s"] == {"risks": ["q1"]}
+
+
+def test_save_results_skips_entirely_when_only_cached_fields_exist(monkeypatch, entry):
+    saved = {}
+    monkeypatch.setattr(g, "save_research", lambda e, f, s: saved.update(f=f))
+    final = _final([entry(field="risks", tool="memory", result="cached")], {"risks": "confirmed"})
+    save_results("Acme", final)
+    assert saved == {}
+
+
+def test_save_results_skips_fallback_reports(monkeypatch, entry):
+    saved = {}
+    monkeypatch.setattr(g, "save_research", lambda e, f, s: saved.update(f=f))
+    final = _final([entry(field="risks", result="r")], {"risks": "confirmed"})
+    final["stop_reason"] = "max_replans+synthesizer_unavailable"
+    save_results("Acme", final)
+    assert saved == {}
 
 
 def test_run_with_memory_seeds_saves_and_sets_note(monkeypatch):
@@ -281,3 +359,5 @@ def test_run_without_memory_never_touches_memory(monkeypatch):
     monkeypatch.setattr(g, "save_results", boom)
     out = run("Acme", use_memory=False)
     assert out["memory_note"] == ""
+
+

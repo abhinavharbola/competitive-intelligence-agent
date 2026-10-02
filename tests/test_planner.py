@@ -94,3 +94,69 @@ def test_plan_replaces_previous_plan(state, step, monkeypatch):
     monkeypatch.setattr(llm, "call_planner", lambda s, u: _steps_response("risks"))
     out = planner.plan(state)
     assert len(out["plan"]) == 1 and out["plan"][0]["field"] == "risks"
+
+
+
+
+def test_plan_excludes_empty_results_and_gap_fields_from_confirmed_summary(state, entry, monkeypatch):
+    from tools.results import EMPTY_RESULT
+    captured = {}
+
+    def fake(system, user):
+        captured["user"] = user
+        return _steps_response("risks")
+
+    monkeypatch.setattr(llm, "call_planner", fake)
+    state["critique"] = {"approved": False, "gaps": ["risks"]}
+    state["scratchpad"] = [
+        entry(field="risks", result="old risk text"),
+        entry(field="competitors", result=EMPTY_RESULT),
+        entry(field="what_it_does", result="does things"),
+    ]
+    planner.plan(state)
+    assert "what_it_does:" in captured["user"]
+    assert "old risk text" not in captured["user"]
+    assert "competitors:" not in captured["user"]
+
+
+def test_plan_lists_seeded_fields_as_confirmed_on_first_pass(state, entry, monkeypatch):
+    captured = {}
+
+    def fake(system, user):
+        captured["user"] = user
+        return _steps_response("recent_news")
+
+    monkeypatch.setattr(llm, "call_planner", fake)
+    state["scratchpad"] = [entry(field="risks", tool="memory", result="cached risk")]
+    planner.plan(state)
+    assert "already confirmed" in captured["user"]
+    assert "risks: " in captured["user"]
+
+
+def test_plan_confirmed_summary_is_rewrapped_after_truncation(state, entry, monkeypatch):
+    from tools.results import wrap_untrusted
+    captured = {}
+
+    def fake(system, user):
+        captured["user"] = user
+        return _steps_response("risks")
+
+    monkeypatch.setattr(llm, "call_planner", fake)
+    state["scratchpad"] = [entry(field="competitors", result=wrap_untrusted("y" * 500))]
+    planner.plan(state)
+    assert captured["user"].count("<untrusted_web_content>") == captured["user"].count("</untrusted_web_content>") == 1
+
+
+def test_plan_is_capped_at_max_plan_steps(state, monkeypatch):
+    import config
+    many = _steps_response(*(["risks"] * (config.MAX_PLAN_STEPS + 5)))
+    monkeypatch.setattr(llm, "call_planner", lambda s, u: many)
+    out = planner.plan(state)
+    assert len(out["plan"]) == config.MAX_PLAN_STEPS
+
+
+def test_planner_prompt_carries_untrusted_notice_and_step_cap():
+    import config
+    from tools.results import UNTRUSTED_NOTICE
+    assert UNTRUSTED_NOTICE in planner.SYSTEM
+    assert str(config.MAX_PLAN_STEPS) in planner.SYSTEM

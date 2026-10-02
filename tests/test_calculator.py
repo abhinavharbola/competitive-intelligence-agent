@@ -38,3 +38,5 @@ def test_rejects_import_call():
 
 def test_returns_string():
     assert isinstance(calculate("1"), str)
+
+
