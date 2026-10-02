@@ -1,17 +1,23 @@
 from agent import llm, schemas
 from agent.state import ResearchState
 from agent.guardrails import wall_clock_exceeded
+from tools.results import UNTRUSTED_NOTICE
 import config
 
-SYSTEM = """You are the Critic for a Competitive Intelligence Agent.
+SYSTEM = (
+    """You are the Critic for a Competitive Intelligence Agent.
 Check the scratchpad against the 5 required fields: what_it_does, funding_ownership, recent_news, competitors, risks.
 A field is satisfied only if the scratchpad contains a sourced, on-topic finding for it.
 You are given today's date. Judge recent_news against it, a finding dated well before today is
 not sufficient on its own, flag recent_news as a gap if nothing in the scratchpad is genuinely
 recent relative to the given date; never assume your own training cutoff is the current date.
+"""
+    + UNTRUSTED_NOTICE
+    + """
 Respond as JSON: {"approved": bool, "gaps": [field names still missing or insufficiently sourced]}
 Every gap must be exactly one of the 5 field names above, nothing else.
 approved is true only when gaps is empty."""
+)
 
 
 def critique(state: ResearchState) -> ResearchState:
@@ -45,7 +51,8 @@ def critique(state: ResearchState) -> ResearchState:
 
     state["critique"] = {"approved": approved, "gaps": gaps}
     if not approved:
-        state["replan_count"] += 1
         if state["replan_count"] >= config.MAX_REPLAN_CYCLES:
             state["stop_reason"] = "max_replans"
+        else:
+            state["replan_count"] += 1
     return state

@@ -17,6 +17,7 @@ def _search_with_retry(query: str, max_results: int) -> dict:
             return _client.search(query=query, max_results=max_results)
         except Exception as e:
             last_error = e
+            logfire.warn("tool_call_failed", tool="search", query=query, attempt=attempt, error=str(e))
             if attempt < _RETRY_ATTEMPTS:
                 print(f"    [tool] search attempt {attempt} failed ({e}), retrying", flush=True)
                 time.sleep(_RETRY_DELAY_SECONDS)

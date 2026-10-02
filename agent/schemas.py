@@ -15,7 +15,7 @@ class PlannerResponse(BaseModel):
 
 
 class CriticResponse(BaseModel):
-    approved: bool
+    approved: bool | None = None
     gaps: list[str]
 
 
@@ -24,19 +24,12 @@ class ExecutorArgs(BaseModel):
     expression: str = ""
 
 
-FieldStatusValue = Literal["confirmed", "insufficient information"]
-
-
 class SynthesizerResponse(BaseModel):
     report_markdown: str
-    field_status: dict[str, FieldStatusValue]
+    field_status: dict[str, str]
 
 
 def valid_planner_steps(raw: dict) -> list[PlanStepOut]:
-    """Validate the planner's raw JSON and silently drop any step whose field
-    isn't one of the five canonical fields, rather than failing the whole
-    response over one bad key.
-    """
     parsed = PlannerResponse.model_validate(raw)
     steps = []
     for step in parsed.steps:
@@ -45,3 +38,10 @@ def valid_planner_steps(raw: dict) -> list[PlanStepOut]:
             continue
         steps.append(step)
     return steps
+
+
+def clean_field_status(raw: dict) -> dict[str, str]:
+    return {
+        field: "confirmed" if raw.get(field) == "confirmed" else "insufficient information"
+        for field in config.REQUIRED_FIELDS
+    }

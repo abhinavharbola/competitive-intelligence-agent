@@ -6,6 +6,7 @@ from agent.planner import plan
 from agent.executor import execute
 from agent.critic import critique
 from agent.synthesizer import synthesize
+from agent.guardrails import stop_reasons
 from agent.tracing import traced_node
 from tools.memory import find_prior_research, save_research
 from tools.results import is_empty_result
@@ -17,7 +18,7 @@ def route_after_critic(state: ResearchState) -> str:
         return "synthesizer"
     if state.get("stop_reason"):
         return "synthesizer"
-    if state["replan_count"] >= config.MAX_REPLAN_CYCLES:
+    if state["replan_count"] > config.MAX_REPLAN_CYCLES:
         return "synthesizer"
     return "planner"
 
@@ -72,11 +73,11 @@ def seed_from_memory(state: ResearchState, entity: str) -> tuple[ResearchState, 
             f"(similarity {prior['score']}) found but not auto-used, verify manually"
         )
 
-    if prior["age_days"] > config.MEMORY_CACHE_DAYS:
-        return state, ""
-
     for field, result in prior["findings"].items():
-        if field == "recent_news":
+        if field == "recent_news" or field not in config.REQUIRED_FIELDS:
+            continue
+        age = prior["ages"].get(field)
+        if age is None or age > config.MEMORY_CACHE_DAYS:
             continue
         prior_sources = prior["sources"].get(field, [])
         provenance = "; ".join(prior_sources) if prior_sources else "unrecorded"
@@ -87,13 +88,25 @@ def seed_from_memory(state: ResearchState, entity: str) -> tuple[ResearchState, 
                 tool="memory",
                 args="",
                 result=result,
-                source=f"cache, {prior['age_days']}d old, originally: {provenance}",
+                source=f"cache, {int(age)}d old, originally: {provenance}",
             )
         )
     return state, ""
 
 
+def prepare_state(entity: str, use_memory: bool = True) -> ResearchState:
+    state = build_initial_state(entity)
+    memory_note = ""
+    if use_memory:
+        state, memory_note = seed_from_memory(state, entity)
+    state["memory_note"] = memory_note
+    return state
+
+
 def save_results(entity: str, final_state: ResearchState) -> None:
+    if "synthesizer_unavailable" in stop_reasons(final_state["stop_reason"]):
+        return
+
     findings: dict[str, str] = {}
     sources: dict[str, list[str]] = {}
     for field in config.REQUIRED_FIELDS:
@@ -101,25 +114,21 @@ def save_results(entity: str, final_state: ResearchState) -> None:
             continue
         entries = [
             e for e in final_state["scratchpad"]
-            if e["field"] == field and not is_empty_result(e["result"])
+            if e["field"] == field and e["tool"] != "memory" and not is_empty_result(e["result"])
         ]
         if not entries:
             continue
         findings[field] = "\n\n".join(e["result"] for e in entries)
         sources[field] = sorted({e["source"] for e in entries})
+    if not findings:
+        return
     save_research(entity, findings, sources)
 
 
 def run(entity: str, critic_enabled: bool = True, use_memory: bool = True) -> ResearchState:
-    initial_state = build_initial_state(entity)
-
-    memory_note = ""
-    if use_memory:
-        initial_state, memory_note = seed_from_memory(initial_state, entity)
-
+    initial_state = prepare_state(entity, use_memory)
     app = build_graph(critic_enabled=critic_enabled)
     final_state = app.invoke(initial_state)
-    final_state["memory_note"] = memory_note
 
     if use_memory:
         save_results(entity, final_state)

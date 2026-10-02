@@ -3,18 +3,49 @@ from agent.guardrails import wall_clock_exceeded
 from agent.state import ResearchState, ScratchpadEntry
 from tools.search import web_search
 from tools.calculator import calculate
+from tools.results import UNTRUSTED_NOTICE, excerpt, is_empty_result
 import config
 
-SYSTEM = """You are the Executor for a Competitive Intelligence Agent.
-Given one research sub-question and its assigned tool, produce the exact tool input.
+SYSTEM = (
+    """You are the Executor for a Competitive Intelligence Agent.
+Given one research sub-question, its assigned tool, and optionally earlier queries and findings, produce the exact tool input.
 Respond as JSON. For "search" respond {"query": str}. For "calculator" respond {"expression": str}.
-Keep search queries specific and short. You are given today's date, use it to make a
+Keep search queries specific and short. Never repeat a query or expression listed as already run, vary the wording or angle instead.
+For "calculator", build the expression only from numbers that appear in the provided findings, never from memory, using plain arithmetic operators.
+You are given today's date, use it to make a
 recency-sensitive query concrete (an actual month/year) instead of relying on the word "recent"
-alone, and never assume your own training cutoff is the current date."""
+alone, and never assume your own training cutoff is the current date.
+"""
+    + UNTRUSTED_NOTICE
+)
+
+_MAX_CONTEXT_ITEMS = 12
 
 
 def _run_tool(tool: str, arg_value: str) -> str:
     return web_search(arg_value) if tool == "search" else calculate(arg_value)
+
+
+def _build_user(state: ResearchState, step) -> str:
+    lines = [
+        f"Today's date: {state['today']}",
+        f"Sub-question: {step['sub_question']}",
+        f"Tool: {step['tool']}",
+    ]
+    previous = [e["args"] for e in state["scratchpad"] if e["tool"] == step["tool"] and e["args"]]
+    if previous:
+        unique = list(dict.fromkeys(previous))[-_MAX_CONTEXT_ITEMS:]
+        noun = "queries" if step["tool"] == "search" else "expressions"
+        lines.append(f"Already-run {noun}, do not repeat: " + "; ".join(unique))
+    if step["tool"] == "calculator":
+        findings = [
+            f"- {e['field']}: {excerpt(e['result'], 400)}"
+            for e in state["scratchpad"]
+            if not is_empty_result(e["result"])
+        ][-_MAX_CONTEXT_ITEMS:]
+        if findings:
+            lines.append("Findings available for the calculation:\n" + "\n".join(findings))
+    return "\n".join(lines)
 
 
 def execute(state: ResearchState) -> ResearchState:
@@ -31,12 +62,10 @@ def execute(state: ResearchState) -> ResearchState:
         print(f"  [step] {step['field']}: {step['sub_question']}", flush=True)
 
         try:
-            args_response = llm.call_executor(
-                SYSTEM,
-                f"Today's date: {state['today']}\nSub-question: {step['sub_question']}\nTool: {step['tool']}",
-            )
+            args_response = llm.call_executor(SYSTEM, _build_user(state, step))
             args = schemas.ExecutorArgs.model_validate(args_response)
-            arg_value = (args.query or args.expression).strip()
+            raw_arg = args.query if step["tool"] == "search" else args.expression
+            arg_value = raw_arg.strip()
         except Exception as e:
             print(f"  [step] {step['field']} failed to produce tool args: {e}", flush=True)
             step["status"] = "failed"
@@ -47,21 +76,30 @@ def execute(state: ResearchState) -> ResearchState:
             step["status"] = "failed"
             continue
 
+        if wall_clock_exceeded(state):
+            state["stop_reason"] = "wall_clock"
+            break
+
         call_key = f"{step['tool']}:{arg_value.lower()}"
         cached = state["tool_call_cache"].get(call_key)
 
         if cached is not None:
             step["status"] = "blocked"
-            state["scratchpad"].append(
-                ScratchpadEntry(
-                    sub_question=step["sub_question"],
-                    field=step["field"],
-                    tool=step["tool"],
-                    args=arg_value,
-                    result=cached["result"],
-                    source=cached["source"],
-                )
+            already_recorded = any(
+                e["field"] == step["field"] and f"{e['tool']}:{e['args'].lower()}" == call_key
+                for e in state["scratchpad"]
             )
+            if not already_recorded:
+                state["scratchpad"].append(
+                    ScratchpadEntry(
+                        sub_question=step["sub_question"],
+                        field=step["field"],
+                        tool=step["tool"],
+                        args=arg_value,
+                        result=cached["result"],
+                        source=cached["source"],
+                    )
+                )
             continue
 
         try:
@@ -71,7 +109,11 @@ def execute(state: ResearchState) -> ResearchState:
             step["status"] = "failed"
             continue
 
-        source = arg_value if step["tool"] == "search" else "calculator"
+        if step["tool"] == "search":
+            source = arg_value
+        else:
+            result = f"{arg_value} = {result}"
+            source = f"calculator: {arg_value}"
         state["tool_call_count"] += 1
         state["tool_call_cache"][call_key] = {"result": result, "source": source}
         state["scratchpad"].append(

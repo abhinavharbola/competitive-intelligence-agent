@@ -36,3 +36,5 @@ class ResearchState(TypedDict):
     field_status: dict[str, str]
     stop_reason: str
     memory_note: str
+
+

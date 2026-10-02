@@ -11,6 +11,8 @@ LEGAL_SUFFIXES = {
 }
 
 _FUZZY_CANDIDATE_LIMIT = 2000
+_ROW_LIMIT = 20
+_SECONDS_PER_DAY = 86400
 
 
 def normalize_entity(name: str) -> str:
@@ -25,6 +27,23 @@ def _connect():
     return psycopg.connect(config.NEON_DSN)
 
 
+def _merge_rows(rows: list) -> dict:
+    now = datetime.now(timezone.utc)
+    findings: dict[str, str] = {}
+    sources: dict[str, list] = {}
+    ages: dict[str, float] = {}
+    for created_at, row_findings, row_sources in rows:
+        age = (now - created_at).total_seconds() / _SECONDS_PER_DAY
+        row_sources = row_sources or {}
+        for field, text in (row_findings or {}).items():
+            if field in findings:
+                continue
+            findings[field] = text
+            sources[field] = row_sources.get(field, [])
+            ages[field] = age
+    return {"exact_match": True, "findings": findings, "sources": sources, "ages": ages}
+
+
 def find_prior_research(entity_raw: str) -> dict | None:
     if not config.NEON_DSN:
         return None
@@ -37,25 +56,19 @@ def find_prior_research(entity_raw: str) -> dict | None:
                     """
                     SELECT created_at, findings, sources FROM research_runs
                     WHERE entity_normalized = %s
-                    ORDER BY created_at DESC LIMIT 1
+                    ORDER BY created_at DESC LIMIT %s
                     """,
-                    (normalized,),
+                    (normalized, _ROW_LIMIT),
                 )
-                row = cur.fetchone()
-                if row:
-                    created_at, findings, sources = row
-                    age_days = (datetime.now(timezone.utc) - created_at).days
-                    return {
-                        "exact_match": True,
-                        "age_days": age_days,
-                        "findings": findings,
-                        "sources": sources or {},
-                    }
+                rows = cur.fetchall()
+                if rows:
+                    return _merge_rows(rows)
 
                 cur.execute(
                     """
-                    SELECT DISTINCT entity_normalized FROM research_runs
-                    ORDER BY entity_normalized LIMIT %s
+                    SELECT entity_normalized FROM research_runs
+                    GROUP BY entity_normalized
+                    ORDER BY MAX(created_at) DESC LIMIT %s
                     """,
                     (_FUZZY_CANDIDATE_LIMIT,),
                 )
@@ -77,7 +90,7 @@ def find_prior_research(entity_raw: str) -> dict | None:
 
 
 def save_research(entity_raw: str, findings: dict, sources: dict) -> None:
-    if not config.NEON_DSN:
+    if not config.NEON_DSN or not findings:
         return
 
     normalized = normalize_entity(entity_raw)
