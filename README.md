@@ -18,7 +18,7 @@ Built as a portfolio project on entirely free-tier infrastructure: no paid APIs,
   <sub>A run in progress: the research log streams node-by-node on the left (including a live Critic replan cycle), while the dossier status panel on the right stamps each of the 5 required fields as it is sourced.</sub>
 </p>
 
-> Additional screenshots and an example report in [`assets/`](assets/).
+> Additional screenshots and example report in [`assets/`](assets/).
 
 ## What this is
 
@@ -56,9 +56,9 @@ A full run is at most 4 Planner calls and 4 Critic calls: the initial pass plus 
 Full node-by-node data flow and state schema: [`docs/architecture.md`](docs/architecture.md).
 
 ## Models
-
+ 
 Models are matched to free-tier rate limits (RPM/TPM/RPD) by each role's call volume:
-
+ 
 | Role | Model | Provider | Calls/run | Why this model, this provider |
 |---|---|---|---|---|
 | Planner | `nvidia/nemotron-3-super-120b-a12b` | NIM | 1 to 4 | NVIDIA's model for multi-step planning. Low-volume role. |
@@ -66,42 +66,41 @@ Models are matched to free-tier rate limits (RPM/TPM/RPD) by each role's call vo
 | Critic | `gemini-3.5-flash-lite` | Gemini | 1 to 4 | Light JSON gap-classification; needs less quality, gets higher RPM/RPD. |
 | Synthesizer | `gemini-3.5-flash` | Gemini | 1 | Writes what the user reads, so it gets full Flash. |
 | Eval judge | `openai/gpt-oss-120b` | Groq | eval-only | Separate key keeps judge traffic off the Executor's quota. Grades the Gemini report, never Executor output. |
-
+ 
 ## Guardrails
-
+ 
 | Guardrail | Behavior |
 |---|---|
-| Hard stops | 3 replans, 15 tool calls, 8 steps per plan, 8 minutes wall-clock. On any limit the run returns what it confirmed and marks the rest "insufficient information". |
-| Clock checks | Before the Planner, before the Critic, before each Executor step, and after tool input is generated. The Synthesizer always runs; an in-flight call may finish. |
-| Loop detection | The Executor sees queries already run and must vary them. An identical tool and argument pair skips the call and records the cached result for the current field (unless it already holds it), so no field is left uncovered and no evidence is double-counted. |
-| Timeouts | 60s per LLM call: client-enforced for NIM and Groq, a watchdog thread for Gemini. |
-| Retries | Transient errors (like `503`): 3 attempts, exponential backoff; `429` waits 10s then 20s. Malformed JSON is retried, Tavily once. 400, 401, 403, 404, 422, invalid key and exhausted daily quota fail immediately. Each failed attempt logs a Logfire warning. |
-| Failure isolation | Tool args or call fail: step is `failed`. Duplicate skipped: step is `blocked`. Logged separately. |
-| Degradation | Critic failure goes straight to the Synthesizer via `stop_reason`. Synthesizer failure or empty report falls back to a plain scratchpad report, marked unverified and never cached. Stop reasons are joined (`max_replans+synthesizer_unavailable`), so the first is never overwritten. |
-
+| Hard stops | 3 replans, 15 tool calls, 8 steps per plan, 8 minutes wall-clock. On a limit: return confirmed fields, mark the rest "insufficient information". |
+| Clock checks | Before the Planner, Critic and each Executor step, and after tool input is generated. The Synthesizer always runs; an in-flight call may finish. |
+| Loop detection | Executor sees past queries and must vary them. An exact repeat skips the call and reuses the cached result for that field, once. |
+| Timeouts | 60s per LLM call (client-enforced for NIM and Groq, a watchdog thread for Gemini). |
+| Retries | 3 attempts, exponential backoff; `429` waits 10s then 20s. Malformed JSON is retried, Tavily once. 400, 401, 403, 404, 422, invalid key and exhausted daily quota fail fast. Each failure logs a Logfire warning. |
+| Failure isolation | Tool error: `failed`. Duplicate skipped: `blocked`. Logged separately. |
+| Degradation | Critic fails: go to the Synthesizer. Synthesizer fails or returns empty: unverified scratchpad report, never cached. Stop reasons are joined (`max_replans+synthesizer_unavailable`), never overwritten. |
+ 
 ## Memory
-
+ 
 Neon/Postgres, keyed by a normalized entity name (lowercased, legal suffixes like Inc/Ltd/Corp/LLC stripped).
-
+ 
 | Lookup | Behavior |
 |---|---|
-| Exact match | Recent rows merged per field, newest winning, each with its own age in fractional days. Fields under 7 days old, except `recent_news`, are seeded into the scratchpad and not re-planned, so a hit saves tool calls. `recent_news` is always re-researched. |
-| Fuzzy match only | Never seeded. RapidFuzz `WRatio` is substring-aware, so "Meta" vs. "Meta Financial Group" is intended to raise a `memory_note` instead of conflating them. Candidates: the 2000 most recently researched entities. |
-| No match | Full fresh research. |
-
-**Write-back** keeps only fresh work:
-- A field is saved when the Synthesizer marked it `"confirmed"` and the scratchpad holds a non-empty, non-cached entry for it (all such entries kept).
+| Exact match | Rows merged per field, newest wins, each with its own age in fractional days. Fields under 7 days old are seeded and not re-planned, except `recent_news`, which is always re-researched. |
+| Fuzzy match only | Never seeded. `WRatio` is substring-aware, so "Meta" vs. "Meta Financial Group" should raise a `memory_note`. Candidates: the 2000 most recent entities. |
+| No match | Fresh research. |
+ 
+**Write-back**:
+- Saved: fields the Synthesizer marked `"confirmed"` that have a non-empty, non-cached entry (all such entries kept).
 - Cached text is never re-saved, so ages never reset and text never grows.
-- A run with nothing new, or one using the fallback report, writes nothing, so it cannot shadow earlier rows.
+- A run with no new work, or a fallback report, writes nothing, so earlier rows are never shadowed.
 - Unconfirmed fields, including any cut off by a hard stop, are never cached.
-
 ## Safety
-
+ 
 | Area | Mitigation | Limit |
 |---|---|---|
-| Prompt injection | All Tavily output is wrapped in `<untrusted_web_content>` tags. The Planner, Executor, Critic, Synthesizer and Judge prompts treat tagged content as data, never instructions. Literal tags in fetched text are neutralized and truncated excerpts are re-wrapped, so delimiters stay balanced. | A mitigation, not a guarantee. |
-| Calculator | Expressions are built from scratchpad findings. Each is stored with its result under source `calculator: <expression>`, so it is traceable. | "Use no other numbers" is a model instruction, not enforced in code. |
-| API | Optional `API_ACCESS_KEY` makes `POST /research` require a matching `X-API-Key` header. Entity names are stripped and capped at 200 characters. | No rate limiting. |
+| Prompt injection | Tavily output is wrapped in `<untrusted_web_content>`; the Planner, Executor, Critic, Synthesizer and Judge prompts treat it as data. Embedded tags are neutralized, excerpts re-wrapped. | A mitigation, not a guarantee. |
+| Calculator | Built from scratchpad findings; stored as `calculator: <expression>` with its result, so it is traceable. | "Use only these numbers" is a model instruction, not code-enforced. |
+| API | Optional `API_ACCESS_KEY` requires `X-API-Key` on `POST /research`. Entity stripped, capped at 200 characters. | No rate limiting. |
 
 ## Project Structure
 
@@ -200,19 +199,19 @@ curl -X POST http://localhost:8000/research -H "Content-Type: application/json" 
 The API returns the report, per-field status, replan and tool-call counts, the scratchpad (execution trace) and any memory note. The Streamlit UI shows the same run live: a node-by-node research log, a dossier status panel with per-field stamps, and the filed brief with a download button.
 
 ## Evaluation
-
+ 
 `/eval` is the project's core differentiator, not a checkbox.
-
+ 
 | Component | What it does |
 |---|---|
-| [`benchmark.json`](eval/benchmark.json) | 15 companies with manually verified ground truth (`"verified": true` on all). A run warns on any unverified entry instead of scoring against placeholders. |
-| [`judge.py`](eval/judge.py) | A Groq (`openai/gpt-oss-120b`) judge on its own key scores groundedness (does every claim trace to a scratchpad source?) and completeness (are all 5 fields correct or marked insufficient?), 0 to 5 each, with a short note. Ground truth is a dated snapshot, so a newer sourced `recent_news` finding is not penalized. Tool calls and wall-clock are measured directly, without an LLM. |
-| [`run_ablation.py`](eval/run_ablation.py) | Runs the benchmark with the Critic on and off, and writes per-run results (`with_critic.json`, `without_critic.json`) and the delta (`summary.json`) to `eval/results/`. It measures whether replans earn their extra calls and latency. |
-
-Notes:
-- **Paired delta**: only entities without an infrastructure failure in both conditions count. Dropped ones appear under `excluded_infra_failures` and `excluded_unpaired`.
-- **`--limit N`**: a positive integer; takes the first N entries.
-- **Noise**: small slices are dominated by judge variance (near n=3), so read the notes with the numbers and prefer the full 15 when quotas allow.
+| [`benchmark.json`](eval/benchmark.json) | 15 companies, manually verified ground truth (`"verified": true`). Warns on any unverified entry. |
+| [`judge.py`](eval/judge.py) | Groq `openai/gpt-oss-120b` judge on its own key. Scores groundedness and completeness (0 to 5) with a short note. Ground truth is a dated snapshot, so newer sourced `recent_news` is not penalized. Tool calls and time are measured directly. |
+| [`run_ablation.py`](eval/run_ablation.py) | Critic on vs. off. Writes `with_critic.json`, `without_critic.json` and `summary.json` to `eval/results/`. |
+ 
+- **Scores**: groundedness = every claim traces to a scratchpad source. Completeness = all 5 fields correct or marked insufficient.
+- **Paired delta**: only entities that finished cleanly in both conditions count. Dropped ones go under `excluded_infra_failures` and `excluded_unpaired`.
+- **`--limit N`**: positive integer, first N entries.
+- **Noise**: judge variance dominates small slices (around n=3). Read the notes, and use all 15 when quotas allow.
 
 ## Evaluation Metrics (Local Run)
 
@@ -233,10 +232,9 @@ Expected shape: the Critic costs about 1.7x the tool calls and 2.4x the time, bu
 
 ## Known limitations
 
-- **Gemini quota**: daily per-model request cap (see the AI Studio dashboard; no fixed published figure). Critic and Synthesizer use different models for separate buckets, but each is finite.
-- **Groq quota**: 1,000 requests/day per key for `openai/gpt-oss-120b` on the free tier. Each pending step costs one Executor call, including `blocked` and `failed` ones. Typical use is about 10 to 15 per run, worst case 8 steps x 4 plans = 32, so budget roughly 30 to 90 runs/day. This is the tightest constraint.
+- **Groq quota**: 1,000 requests/day per key for `openai/gpt-oss-120b` on the free tier. Each pending step costs one Executor call, including `blocked` and `failed` ones. Typical use is about 10 to 15 per run, worst case 8 steps x 4 plans = 32, so budget roughly 30 to 90 runs/day.
 - **Wall clock**: enforced between steps, so a run can overrun by one in-flight step.
 - **Synthesizer**: `field_status` is checked against the scratchpad, but whether the report text matches those entries is judged by the model, not verified in code.
-- **API**: no rate limiting, and each request holds a worker for the whole run. `API_ACCESS_KEY` is the only protection for your quotas.
-- **Memory**: freshness is per field, so one entity's fields can be different ages.
+- **API**: no rate limiting, and each request holds a worker for the whole run. `API_ACCESS_KEY` is the only protection for the quotas.
 - **Ablation**: small samples are dominated by judge variance.
+- **Memory**: freshness is per field, so one entity's fields can be different ages.
